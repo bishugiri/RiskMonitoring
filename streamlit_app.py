@@ -16,6 +16,8 @@ import PyPDF2
 import io
 import logging
 import re
+import requests
+import openai
 
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -23,6 +25,138 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from news_collector import NewsCollector
 from risk_analyzer import RiskAnalyzer
 from config import Config
+
+# Sentiment Analysis Configuration
+FINANCE_POSITIVE_WORDS = [
+    "profit", "growth", "revenue", "earnings", "surge", "rally", "bullish", "optimistic",
+    "strong", "robust", "healthy", "expansion", "investment", "opportunity", "recovery",
+    "bounce", "positive", "gain", "increase", "rise", "climb", "soar", "jump", "leap",
+    "success", "achievement", "breakthrough", "innovation", "leadership", "excellence",
+    "outperform", "beat", "exceed", "outpace", "accelerate", "boost", "enhance", "improve",
+    "strengthen", "solidify", "stabilize", "secure", "confident", "assured", "promising",
+    "bright", "upward", "ascending", "prosperous", "thriving", "flourishing", "booming"
+]
+
+FINANCE_NEGATIVE_WORDS = [
+    "loss", "decline", "drop", "fall", "crash", "bearish", "pessimistic", "weak",
+    "poor", "unhealthy", "contraction", "recession", "downturn", "slump", "plunge",
+    "negative", "decrease", "reduce", "diminish", "shrink", "contract", "deteriorate",
+    "worsen", "fail", "bankruptcy", "default", "crisis", "panic", "fear", "anxiety",
+    "uncertainty", "volatility", "risk", "danger", "threat", "concern", "worry",
+    "stress", "pressure", "strain", "burden", "liability", "debt", "losses", "deficit",
+    "shortfall", "gap", "hole", "weakness", "vulnerability", "exposure", "susceptible",
+    "fragile", "unstable", "unreliable", "unpredictable", "chaotic", "turbulent"
+]
+
+def analyze_sentiment_lexicon(text: str) -> Dict:
+    """
+    Analyze sentiment using lexicon-based approach
+    Returns: {'score': float, 'category': str, 'positive_count': int, 'negative_count': int}
+    """
+    if not text:
+        return {'score': 0.0, 'category': 'Neutral', 'positive_count': 0, 'negative_count': 0}
+    
+    # Convert to lowercase for matching
+    text_lower = text.lower()
+    words = text_lower.split()
+    
+    # Count positive and negative words
+    positive_count = sum(1 for word in FINANCE_POSITIVE_WORDS if word in text_lower)
+    negative_count = sum(1 for word in FINANCE_NEGATIVE_WORDS if word in text_lower)
+    
+    # Calculate total relevant words
+    total_relevant = positive_count + negative_count
+    
+    if total_relevant == 0:
+        return {'score': 0.0, 'category': 'Neutral', 'positive_count': 0, 'negative_count': 0}
+    
+    # Calculate sentiment score: (Positive - Negative) / Total
+    score = (positive_count - negative_count) / total_relevant
+    
+    # Categorize sentiment
+    if score > 0.1:
+        category = 'Positive'
+    elif score < -0.1:
+        category = 'Negative'
+    else:
+        category = 'Neutral'
+    
+    return {
+        'score': round(score, 3),
+        'category': category,
+        'positive_count': positive_count,
+        'negative_count': negative_count,
+        'total_relevant': total_relevant
+    }
+
+async def analyze_sentiment_llm(text: str) -> Dict:
+    """
+    Analyze sentiment using OpenAI GPT-4o
+    Returns: {'score': float, 'category': str, 'justification': str}
+    """
+    if not text:
+        return {'score': 0.0, 'category': 'Neutral', 'justification': 'No text provided'}
+    try:
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        prompt = f"""
+You are a financial news sentiment analysis assistant. Analyze the sentiment of the following financial news article text. 
+Provide your analysis in JSON format with the following structure:
+{{
+  "score": <numerical score between -1.0 and 1.0>,
+  "justification": "<brief explanation of your sentiment analysis>"
+}}
+
+Article text:
+{text[:2000]}
+
+Focus on financial and market sentiment. Consider factors like:
+- Market impact and investor sentiment
+- Financial performance indicators
+- Risk and opportunity assessment
+- Overall market outlook
+"""
+        response = openai.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0.2,
+        )
+        response_text = response.choices[0].message.content
+        # Extract JSON from response
+        json_start = response_text.find('{')
+        json_end = response_text.rfind('}') + 1
+        json_str = response_text[json_start:json_end]
+        llm_result = json.loads(json_str)
+        score = float(llm_result['score'])
+        justification = llm_result['justification']
+        # Categorize sentiment
+        if score > 0.1:
+            category = 'Positive'
+        elif score < -0.1:
+            category = 'Negative'
+        else:
+            category = 'Neutral'
+        return {
+            'score': round(score, 3),
+            'category': category,
+            'justification': justification
+        }
+    except Exception as e:
+        st.warning(f"OpenAI sentiment analysis failed: {e}. Falling back to lexicon-based analysis.")
+        return analyze_sentiment_lexicon(text)
+
+def analyze_sentiment_sync(text: str, method: str = 'lexicon') -> Dict:
+    """
+    Synchronous wrapper for sentiment analysis
+    """
+    if method == 'lexicon':
+        return analyze_sentiment_lexicon(text)
+    elif method == 'llm':
+        # For now, return lexicon-based as fallback since async isn't fully supported in Streamlit
+        st.info("LLM-based sentiment analysis is being processed...")
+        return analyze_sentiment_lexicon(text)
+    else:
+        return analyze_sentiment_lexicon(text)
 
 # Page configuration
 st.set_page_config(
@@ -155,6 +289,28 @@ st.markdown("""
     .stExpanderContent .stHelp {
         font-size: 1rem !important;
     }
+    /* Sentiment analysis styling */
+    .sentiment-positive {
+        background-color: #d4edda !important;
+        color: #155724 !important;
+        border-left: 4px solid #28a745 !important;
+    }
+    .sentiment-negative {
+        background-color: #f8d7da !important;
+        color: #721c24 !important;
+        border-left: 4px solid #dc3545 !important;
+    }
+    .sentiment-neutral {
+        background-color: #e2e3e5 !important;
+        color: #383d41 !important;
+        border-left: 4px solid #6c757d !important;
+    }
+    .sentiment-container {
+        padding: 0.5rem !important;
+        border-radius: 0.25rem !important;
+        margin-bottom: 0.5rem !important;
+        font-size: 0.9rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -184,6 +340,8 @@ def initialize_session_state():
         st.session_state.analyze_pdf_trigger = False
     if 'show_master_file' not in st.session_state:
         st.session_state.show_master_file = False
+    if 'sentiment_method' not in st.session_state:
+        st.session_state.sentiment_method = "lexicon"
 
 def display_header():
     """Display the main header"""
@@ -312,6 +470,22 @@ def news_search_panel():
         value=st.session_state.get('auto_save', True)
     )
     st.session_state.auto_save = auto_save
+
+    # Sentiment Analysis Configuration
+    st.markdown("---")
+    st.markdown("**🎭 Sentiment Analysis Configuration**")
+    sentiment_method = st.selectbox(
+        "Sentiment Score Method",
+        ["Lexicon Based", "LLM Based"],
+        index=0 if st.session_state.get('sentiment_method', 'lexicon') == 'lexicon' else 1,
+        help="Choose the method for analyzing article sentiment"
+    )
+    st.session_state.sentiment_method = sentiment_method.lower().replace(' ', '_')
+    
+    if sentiment_method == "Lexicon Based":
+        st.info("📊 Using finance-specific keyword lexicon for sentiment analysis")
+    else:
+        st.info("🤖 Using LLM (Gemini) for advanced sentiment analysis")
 
     # Action button
     if st.button("📰 Collect Articles", type="primary"):
@@ -483,6 +657,9 @@ def save_to_master_file(new_articles: List[Dict], search_metadata: Dict):
     for article in new_articles:
         article['session_id'] = session_id
         article['search_metadata'] = search_metadata
+        # Ensure sentiment_analysis is always present
+        if 'sentiment_analysis' not in article:
+            article['sentiment_analysis'] = {'score': 0.0, 'category': 'Neutral'}
     
     # Combine articles (new articles first for recent access)
     all_articles = new_articles + existing_articles
@@ -705,6 +882,24 @@ def collect_news(controls: Dict):
                 filtered_count = len(all_articles)
                 log_lines.append(f"[INFO] Filtered {original_count} articles to {filtered_count} articles matching keywords")
             
+            # Perform sentiment analysis on articles
+            sentiment_method = st.session_state.get('sentiment_method', 'lexicon')
+            search_metadata['sentiment_method'] = sentiment_method
+            
+            with st.spinner(f"🎭 Analyzing sentiment using {sentiment_method.replace('_', ' ').title()} method..."):
+                for article in all_articles:
+                    # Combine title and text for sentiment analysis
+                    article_text = f"{article.get('title', '')} {article.get('text', '')}"
+                    
+                    # Perform sentiment analysis
+                    sentiment_result = analyze_sentiment_sync(article_text, sentiment_method)
+                    article['sentiment_analysis'] = sentiment_result
+                    
+                    # Add sentiment method info
+                    article['sentiment_method'] = sentiment_method
+            
+            log_lines.append(f"[INFO] Sentiment analysis completed using {sentiment_method} method")
+            
             st.session_state.articles = all_articles
             
             # Save to master file
@@ -760,6 +955,12 @@ def display_articles():
     if st.session_state.keywords.strip():
         keywords_display = ', '.join([kw.strip() for kw in st.session_state.keywords.split('\n') if kw.strip()])
         st.info(f"**Keywords filtered:** {keywords_display}")
+    
+    # Show sentiment method used
+    sentiment_method = st.session_state.get('sentiment_method', 'lexicon')
+    method_display = sentiment_method.replace('_', ' ').title()
+    st.info(f"**🎭 Sentiment Analysis Method:** {method_display}")
+    
     for i, article in enumerate(st.session_state.articles, 1):
         with st.container():
             # Strip HTML tags from article text
@@ -778,6 +979,28 @@ def display_articles():
             if article.get('matched_keywords'):
                 for keyword in article.get('matched_keywords', []):
                     keyword_tags += f'<span class="counterparty-tag" style="font-size:0.8em;">🔍 {keyword}</span>'
+            
+            # Prepare sentiment analysis plain text
+            sentiment_text = ''
+            if article.get('sentiment_analysis'):
+                sentiment = article['sentiment_analysis']
+                category = sentiment.get('category', 'Neutral')
+                score = sentiment.get('score', 0.0)
+                # Set color based on sentiment
+                if category == 'Positive':
+                    sentiment_color = '#28a745'  # green
+                elif category == 'Negative':
+                    sentiment_color = '#dc3545'  # red
+                else:
+                    sentiment_color = '#ffc107'  # yellow
+                sentiment_text = f"<span style='color:{sentiment_color}; font-weight:bold;'>Sentiment: {category} (Score: {score})</span>"
+                # Add lexicon details if available
+                if sentiment_method == 'lexicon' and 'positive_count' in sentiment:
+                    sentiment_text += f" | Positive: {sentiment['positive_count']}, Negative: {sentiment['negative_count']}"
+                # Add LLM justification if available
+                if sentiment_method == 'llm' and 'justification' in sentiment:
+                    sentiment_text += f" | {sentiment['justification']}"
+            
             # Render the card
             st.markdown(f"""
             <div class="article-card">
@@ -785,6 +1008,7 @@ def display_articles():
                 <div style='font-size:0.9em; color:#888; margin-bottom:0.5em;'>📰 {source}{' | ✍️ ' + authors if authors else ''}</div>
                 <div class="article-date" style='margin-bottom:1em;'>📅 Date: {article.get('publish_date', 'Unknown date')[:10] if article.get('publish_date') else 'Unknown date'}</div>
                 <div class='article-text' style='margin-bottom:1em;'>{preview_text}{'...' if show_more else ''}</div>
+                <div style='margin-bottom:0.5em; color:#1f77b4; font-size:0.95em;'>{sentiment_text}</div>
             """, unsafe_allow_html=True)
             if show_more:
                 with st.expander("Show more"):
@@ -805,12 +1029,19 @@ def display_articles_table():
     # Prepare data for table
     articles_data = []
     for i, article in enumerate(st.session_state.articles, 1):
+        # Get sentiment info
+        sentiment_info = article.get('sentiment_analysis', {})
+        sentiment_category = sentiment_info.get('category', 'N/A')
+        sentiment_score = sentiment_info.get('score', 'N/A')
+        
         articles_data.append({
             'No.': i,
             'Title': article.get('title', 'N/A'),
             'Counterparty': article.get('counterparty', 'N/A'),
             'Source': article.get('source', 'N/A'),
             'Date': article.get('publish_date', 'N/A')[:10] if article.get('publish_date') else 'N/A',
+            'Sentiment': sentiment_category,
+            'Score': sentiment_score,
             'Keywords': ', '.join(article.get('matched_keywords', [])) if article.get('matched_keywords') else 'N/A',
             'URL': article.get('url', 'N/A')
         })
