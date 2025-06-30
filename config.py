@@ -1,6 +1,12 @@
 import os
 from dotenv import load_dotenv
 
+# Try to import streamlit for secrets support
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
 # Load environment variables
 load_dotenv()
 
@@ -8,7 +14,6 @@ class Config:
     """Configuration class for the risk monitoring tool"""
     
     # SerpAPI Configuration
-    SERPAPI_KEY = os.getenv('SERPAPI_KEY')
     SERPAPI_BASE_URL = "https://serpapi.com/search"
     
     # News Search Configuration
@@ -45,11 +50,18 @@ class Config:
     REQUEST_TIMEOUT = 30
     MAX_RETRIES = 3
     
+    @staticmethod
+    def get_serpapi_key():
+        try:
+            return st.secrets["SERPAPI_KEY"]
+        except Exception:
+            return os.getenv("SERPAPI_KEY")
+
     @classmethod
     def validate_config(cls):
         """Validate that required configuration is present"""
-        if not cls.SERPAPI_KEY:
-            raise ValueError("SERPAPI_KEY environment variable is required")
-        
+        key = cls.get_serpapi_key()
+        if not key:
+            raise ValueError("SERPAPI_KEY must be set as a Streamlit secret or environment variable")
         # Create output directory if it doesn't exist
         os.makedirs(cls.OUTPUT_DIR, exist_ok=True) 

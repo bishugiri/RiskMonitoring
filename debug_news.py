@@ -17,7 +17,7 @@ def test_basic_collection():
         from news_collector import NewsCollector
         from config import Config
         
-        print(f"API Key: {'Set' if Config.SERPAPI_KEY else 'Not set'}")
+        print(f"API Key: {'Set' if Config.get_serpapi_key() else 'Not set'}")
         
         collector = NewsCollector()
         print("✅ NewsCollector created")
@@ -61,7 +61,7 @@ def test_streamlit_function():
             'search_mode': 'Custom Query',
             'custom_query': 'Apple Inc',
             'num_articles': 2,
-            'api_key': Config.SERPAPI_KEY,
+            'api_key': Config.get_serpapi_key(),
             'auto_save': False
         }
         

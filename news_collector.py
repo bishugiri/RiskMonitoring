@@ -45,7 +45,7 @@ class NewsCollector:
         
         params = {
             'q': query,
-            'api_key': self.config.SERPAPI_KEY,
+            'api_key': Config.get_serpapi_key(),
             'engine': 'google_news',
             'num': num_results,
             'tbm': 'nws'  # News search
