@@ -318,7 +318,7 @@ st.markdown("""
         font-size: 0.95em !important;
         padding-top: 2px !important;
         padding-bottom: 2px !important;
-        margin-bottom: 0.2rem !important;
+        margin-bottom: 1.5rem !important;
         max-width: 250px !important;
     }
     div[data-testid="stSelectbox"] label {
@@ -506,8 +506,8 @@ def news_search_panel():
             help="Choose the method for analyzing article sentiment"
         )
     st.session_state.sentiment_method = sentiment_method.lower().replace(' ', '_')
-    # Add larger vertical spacer before the button
-    st.markdown('<div style="height:2.2rem;"></div>', unsafe_allow_html=True)
+    # Add vertical spacer after selectbox to prevent overlap
+    st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
     # Action button
     if st.button("📰 Collect Articles", type="primary"):
         st.session_state.collect_news_trigger = True
