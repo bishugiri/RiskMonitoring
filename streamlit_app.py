@@ -345,8 +345,10 @@ def initialize_session_state():
 
 def display_header():
     """Display the main header"""
+    # Add extra space at the top
+    st.markdown('<div style="height:2.5rem;"></div>', unsafe_allow_html=True)
     st.markdown('<h1 class="main-header">📰 Risk Monitoring Tool</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Monitor financial risks by collecting and analyzing news for specific counterparties or analyzing PDF documents</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header" style="font-size:0.95rem;">Monitor financial risks by collecting and analyzing news for specific counterparties or analyzing PDF documents</p>', unsafe_allow_html=True)
 
 def navigation_sidebar():
     """Create navigation sidebar"""
