@@ -311,6 +311,17 @@ st.markdown("""
         margin-bottom: 0.5rem !important;
         font-size: 0.9rem !important;
     }
+    /* Reduce box size for Sentiment Score Method selectbox */
+    label:has(> div[data-baseweb="select"]) {
+        font-size: 0.95em !important;
+    }
+    div[data-testid="stSelectbox"] select {
+        min-height: 28px !important;
+        height: 28px !important;
+        font-size: 0.95em !important;
+        padding-top: 2px !important;
+        padding-bottom: 2px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -473,8 +484,8 @@ def news_search_panel():
     )
     st.session_state.auto_save = auto_save
 
-    # Sentiment Analysis Configuration
-    st.markdown("---")
+    # Minimal vertical spacer instead of horizontal rule
+    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
     st.markdown("**🎭 Sentiment Analysis Configuration**")
     sentiment_method = st.selectbox(
         "Sentiment Score Method",
