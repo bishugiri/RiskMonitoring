@@ -311,11 +311,21 @@ st.markdown("""
         margin-bottom: 0.5rem !important;
         font-size: 0.9rem !important;
     }
-    /* Reduce box size for Sentiment Score Method selectbox */
-    label:has(> div[data-baseweb="select"]) {
+    /* Aggressively reduce box size for Sentiment Score Method selectbox */
+    div[data-testid="stSelectbox"] {
+        min-height: 28px !important;
+        height: 28px !important;
         font-size: 0.95em !important;
+        padding-top: 2px !important;
+        padding-bottom: 2px !important;
+        margin-bottom: 0.2rem !important;
+        max-width: 250px !important;
     }
-    div[data-testid="stSelectbox"] select {
+    div[data-testid="stSelectbox"] label {
+        font-size: 0.95em !important;
+        margin-bottom: 0.1rem !important;
+    }
+    div[data-testid="stSelectbox"] > div {
         min-height: 28px !important;
         height: 28px !important;
         font-size: 0.95em !important;
@@ -487,19 +497,17 @@ def news_search_panel():
     # Minimal vertical spacer instead of horizontal rule
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
     st.markdown("**🎭 Sentiment Analysis Configuration**")
-    sentiment_method = st.selectbox(
-        "Sentiment Score Method",
-        ["Lexicon Based", "LLM Based"],
-        index=0 if st.session_state.get('sentiment_method', 'lexicon') == 'lexicon' else 1,
-        help="Choose the method for analyzing article sentiment"
-    )
+    col_sel, col_info = st.columns([1, 3], gap="small")
+    with col_sel:
+        sentiment_method = st.selectbox(
+            "Sentiment Score Method",
+            ["Lexicon Based", "LLM Based"],
+            index=0 if st.session_state.get('sentiment_method', 'lexicon') == 'lexicon' else 1,
+            help="Choose the method for analyzing article sentiment"
+        )
     st.session_state.sentiment_method = sentiment_method.lower().replace(' ', '_')
-    
-    if sentiment_method == "Lexicon Based":
-        st.info("📊 Using finance-specific keyword lexicon for sentiment analysis")
-    else:
-        st.info("🤖 Using LLM (Gemini) for advanced sentiment analysis")
-
+    # Add larger vertical spacer before the button
+    st.markdown('<div style="height:2.2rem;"></div>', unsafe_allow_html=True)
     # Action button
     if st.button("📰 Collect Articles", type="primary"):
         st.session_state.collect_news_trigger = True
@@ -775,7 +783,7 @@ def display_master_file():
         
         # Session history
         if metadata.get('sessions'):
-            st.markdown('<h3 style="font-size: 1.2rem; color: #1f77b4; margin-bottom: 0.5rem;">📈 Session History</h3>', unsafe_allow_html=True)
+            st.markdown('<h3 style="font-size: 1.2rem; color: #1f77b4; margin-bottom: 0.5rem;"> Session History</h3>', unsafe_allow_html=True)
             sessions_data = []
             for session in metadata['sessions'][-10:]:  # Show last 10 sessions
                 sessions_data.append({
