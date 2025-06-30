@@ -15,6 +15,7 @@ from typing import Dict, List, Optional
 import PyPDF2
 import io
 import logging
+import re
 
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -132,6 +133,28 @@ st.markdown("""
         padding: 4px 8px !important;
         font-size: 14px !important;
     }
+    /* Compact radio button group spacing */
+    .stRadio > div[role='radiogroup'] > label {
+        margin-bottom: 0.2rem !important;
+        margin-top: 0.2rem !important;
+        padding-top: 0.1rem !important;
+        padding-bottom: 0.1rem !important;
+    }
+    /* Further reduce space below radio group */
+    .stRadio {
+        margin-bottom: 0.1rem !important;
+    }
+    /* Consistent font size for all items in Configure News Analysis */
+    .stExpanderContent label,
+    .stExpanderContent .stTextInput input,
+    .stExpanderContent .stTextArea textarea,
+    .stExpanderContent .stNumberInput input,
+    .stExpanderContent .stRadio label,
+    .stExpanderContent .stCheckbox,
+    .stExpanderContent .stSlider,
+    .stExpanderContent .stHelp {
+        font-size: 1rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -151,6 +174,16 @@ def initialize_session_state():
         st.session_state.pdf_text = ""
     if 'pdf_filename' not in st.session_state:
         st.session_state.pdf_filename = ""
+    if 'show_news_modal' not in st.session_state:
+        st.session_state.show_news_modal = False
+    if 'show_pdf_modal' not in st.session_state:
+        st.session_state.show_pdf_modal = False
+    if 'collect_news_trigger' not in st.session_state:
+        st.session_state.collect_news_trigger = False
+    if 'analyze_pdf_trigger' not in st.session_state:
+        st.session_state.analyze_pdf_trigger = False
+    if 'show_master_file' not in st.session_state:
+        st.session_state.show_master_file = False
 
 def display_header():
     """Display the main header"""
@@ -227,73 +260,63 @@ def manage_counterparties():
 
 def news_search_panel():
     """Show configuration panel for news search in the main area"""
-    with st.container():
-        st.markdown('''<div style="background-color:#222A35;padding:1.5rem 1rem 1rem 1rem;border-radius:10px;margin-bottom:2rem;">
-        <h3 style="color:#1f77b4;margin-bottom:1rem;">News Search Configuration</h3>''', unsafe_allow_html=True)
-        # Counterparty management
-        counterparties = st.text_area(
-            "Enter counterparties (one per line)",
-            value="\n".join(st.session_state.counterparties) if st.session_state.counterparties else "",
-            placeholder="e.g., Apple Inc\nGoldman Sachs"
+    # Counterparty management
+    counterparties = st.text_area(
+        "Enter counterparties (one per line)",
+        value="\n".join(st.session_state.counterparties) if st.session_state.counterparties else "",
+        placeholder="e.g., Apple Inc\nGoldman Sachs"
+    )
+    st.session_state.counterparties = [c.strip() for c in counterparties.split("\n") if c.strip()]
+
+    # Keywords input
+    keywords = st.text_area(
+        "Keywords (one per line)",
+        value=st.session_state.keywords,
+        placeholder="Enter keywords to filter news\nExample:\nrisk\nfinancial\nmarket\ncrisis",
+        height=100
+    )
+    st.session_state.keywords = keywords
+
+    # Search mode selection
+    search_mode = st.radio(
+        "Choose search mode:",
+        ["Counterparty-based", "Custom Query"],
+        index=0 if not st.session_state.get('search_mode') or st.session_state.get('search_mode') == "Counterparty-based" else 1
+    )
+    st.session_state.search_mode = search_mode
+
+    # Custom query input (only shown if custom mode selected)
+    custom_query = ""
+    if search_mode == "Custom Query":
+        custom_query = st.text_input(
+            "Custom Search Query",
+            value=st.session_state.get('custom_query', Config.SEARCH_QUERY),
+            help="Enter your custom search query for news articles"
         )
-        st.session_state.counterparties = [c.strip() for c in counterparties.split("\n") if c.strip()]
+        st.session_state.custom_query = custom_query
 
-        # Keywords input
-        keywords = st.text_area(
-            "Keywords (one per line)",
-            value=st.session_state.keywords,
-            placeholder="Enter keywords to filter news\nExample:\nrisk\nfinancial\nmarket\ncrisis",
-            height=100
-        )
-        st.session_state.keywords = keywords
+    # Number of articles per counterparty/query
+    num_articles = st.number_input(
+        "Articles per Counterparty/Query",
+        min_value=1,
+        max_value=20,
+        value=st.session_state.get('num_articles', 5),
+        step=1,
+        format="%d"
+    )
+    st.session_state.num_articles = num_articles
 
-        # Search mode selection
-        search_mode = st.radio(
-            "Choose search mode:",
-            ["Counterparty-based", "Custom Query"],
-            index=0 if not st.session_state.get('search_mode') or st.session_state.get('search_mode') == "Counterparty-based" else 1
-        )
-        st.session_state.search_mode = search_mode
+    # Auto-save option
+    auto_save = st.checkbox(
+        "Auto-save results",
+        value=st.session_state.get('auto_save', True)
+    )
+    st.session_state.auto_save = auto_save
 
-        # Custom query input (only shown if custom mode selected)
-        custom_query = ""
-        if search_mode == "Custom Query":
-            custom_query = st.text_input(
-                "Custom Search Query",
-                value=st.session_state.get('custom_query', Config.SEARCH_QUERY),
-                help="Enter your custom search query for news articles"
-            )
-            st.session_state.custom_query = custom_query
-
-        # Number of articles per counterparty/query
-        num_articles = st.slider(
-            "Articles per Counterparty/Query",
-            min_value=3,
-            max_value=20,
-            value=st.session_state.get('num_articles', 5)
-        )
-        st.session_state.num_articles = num_articles
-
-        # API key input
-        api_key = st.text_input(
-            "SerpAPI Key",
-            type="password",
-            value=st.session_state.get('api_key', ""),
-            help="Enter your SerpAPI key (or set in .env file)"
-        )
-        st.session_state.api_key = api_key
-
-        # Auto-save option
-        auto_save = st.checkbox(
-            "Auto-save results",
-            value=st.session_state.get('auto_save', True)
-        )
-        st.session_state.auto_save = auto_save
-
-        # Action button
-        if st.button("📰 Collect Articles", type="primary"):
-            st.session_state.collect_news_trigger = True
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Action button
+    if st.button("📰 Collect Articles", type="primary"):
+        st.session_state.collect_news_trigger = True
+        st.session_state.show_news_modal = False  # Collapse the expander after collecting
 
 def pdf_analysis_panel():
     """Show configuration panel for PDF analysis in the main area"""
@@ -435,6 +458,175 @@ def filter_articles_by_keywords(articles: List[Dict], keywords: str) -> List[Dic
     
     return filtered_articles
 
+def load_master_articles():
+    """Load existing articles from master file"""
+    master_file = os.path.join(Config.OUTPUT_DIR, "master_news_articles.json")
+    if os.path.exists(master_file):
+        try:
+            with open(master_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('articles', []), data.get('metadata', {})
+        except Exception as e:
+            st.warning(f"⚠️ Could not load master file: {e}")
+            return [], {}
+    return [], {}
+
+def save_to_master_file(new_articles: List[Dict], search_metadata: Dict):
+    """Save new articles to master file, appending to existing data"""
+    master_file = os.path.join(Config.OUTPUT_DIR, "master_news_articles.json")
+    
+    # Load existing data
+    existing_articles, existing_metadata = load_master_articles()
+    
+    # Add session metadata to new articles
+    session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for article in new_articles:
+        article['session_id'] = session_id
+        article['search_metadata'] = search_metadata
+    
+    # Combine articles (new articles first for recent access)
+    all_articles = new_articles + existing_articles
+    
+    # Update metadata
+    if 'total_sessions' not in existing_metadata:
+        existing_metadata['total_sessions'] = 0
+    existing_metadata['total_sessions'] += 1
+    existing_metadata['last_updated'] = datetime.now().isoformat()
+    existing_metadata['total_articles'] = len(all_articles)
+    existing_metadata['sessions'] = existing_metadata.get('sessions', [])
+    existing_metadata['sessions'].append({
+        'session_id': session_id,
+        'timestamp': datetime.now().isoformat(),
+        'articles_count': len(new_articles),
+        'search_metadata': search_metadata
+    })
+    
+    # Save to master file
+    master_data = {
+        'metadata': existing_metadata,
+        'articles': all_articles
+    }
+    
+    try:
+        with open(master_file, 'w', encoding='utf-8') as f:
+            json.dump(master_data, f, indent=2, ensure_ascii=False, default=str)
+        return master_file
+    except Exception as e:
+        st.error(f"❌ Error saving to master file: {e}")
+        return None
+
+def get_master_file_stats():
+    """Get statistics about the master file"""
+    master_file = os.path.join(Config.OUTPUT_DIR, "master_news_articles.json")
+    if os.path.exists(master_file):
+        try:
+            with open(master_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                metadata = data.get('metadata', {})
+                articles = data.get('articles', [])
+                return {
+                    'total_articles': len(articles),
+                    'total_sessions': metadata.get('total_sessions', 0),
+                    'last_updated': metadata.get('last_updated', 'Unknown'),
+                    'file_size_mb': round(os.path.getsize(master_file) / (1024 * 1024), 2)
+                }
+        except Exception as e:
+            return None
+    return None
+
+def display_master_file_info():
+    """Display information about the master file"""
+    stats = get_master_file_stats()
+    if stats:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("📊 Master File Stats")
+        st.sidebar.metric("Total Articles", stats['total_articles'])
+        st.sidebar.metric("Total Sessions", stats['total_sessions'])
+        st.sidebar.metric("File Size", f"{stats['file_size_mb']} MB")
+        st.sidebar.caption(f"Last Updated: {stats['last_updated'][:19]}")
+        
+        # Add button to view master file
+        if st.sidebar.button("📋 View Master File", key="view_master"):
+            st.session_state.show_master_file = True
+            st.rerun()
+    else:
+        st.sidebar.markdown("---")
+        st.sidebar.info("📊 No master file found yet")
+
+def display_master_file():
+    """Display the master file contents"""
+    if not st.session_state.get('show_master_file', False):
+        return
+    
+    st.markdown('<h2 style="font-size: 1.5rem; color: #1f77b4; margin-bottom: 1rem;">📋 Master News Articles File</h2>', unsafe_allow_html=True)
+    
+    master_file = os.path.join(Config.OUTPUT_DIR, "master_news_articles.json")
+    if not os.path.exists(master_file):
+        st.warning("No master file found.")
+        return
+    
+    try:
+        with open(master_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        metadata = data.get('metadata', {})
+        articles = data.get('articles', [])
+        
+        # Display metadata
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Articles", len(articles))
+        with col2:
+            st.metric("Total Sessions", metadata.get('total_sessions', 0))
+        with col3:
+            st.metric("File Size", f"{round(os.path.getsize(master_file) / (1024 * 1024), 2)} MB")
+        with col4:
+            st.metric("Last Updated", metadata.get('last_updated', 'Unknown')[:10])
+        
+        # Session history
+        if metadata.get('sessions'):
+            st.markdown('<h3 style="font-size: 1.2rem; color: #1f77b4; margin-bottom: 0.5rem;">📈 Session History</h3>', unsafe_allow_html=True)
+            sessions_data = []
+            for session in metadata['sessions'][-10:]:  # Show last 10 sessions
+                sessions_data.append({
+                    'Session ID': session['session_id'],
+                    'Date': session['timestamp'][:10],
+                    'Time': session['timestamp'][11:19],
+                    'Articles': session['articles_count'],
+                    'Search Mode': session['search_metadata'].get('search_mode', 'N/A'),
+                    'Query': session['search_metadata'].get('query', 'N/A')
+                })
+            
+            df_sessions = pd.DataFrame(sessions_data)
+            st.dataframe(df_sessions, use_container_width=True)
+        
+        # Recent articles
+        st.markdown('<h3 style="font-size: 1.2rem; color: #1f77b4; margin-bottom: 0.5rem;">📰 Recent Articles (Last 20)</h3>', unsafe_allow_html=True)
+        recent_articles = articles[:20]  # Show most recent 20 articles
+        
+        articles_data = []
+        for i, article in enumerate(recent_articles, 1):
+            articles_data.append({
+                'No.': i,
+                'Title': article.get('title', 'N/A')[:50] + '...' if len(article.get('title', '')) > 50 else article.get('title', 'N/A'),
+                'Counterparty': article.get('counterparty', 'N/A'),
+                'Source': article.get('source', 'N/A'),
+                'Date': article.get('publish_date', 'N/A')[:10] if article.get('publish_date') else 'N/A',
+                'Session': article.get('session_id', 'N/A'),
+                'URL': article.get('url', 'N/A')
+            })
+        
+        df_articles = pd.DataFrame(articles_data)
+        st.dataframe(df_articles, use_container_width=True)
+        
+        # Close button
+        if st.button("❌ Close Master File View", key="close_master"):
+            st.session_state.show_master_file = False
+            st.rerun()
+            
+    except Exception as e:
+        st.error(f"Error reading master file: {e}")
+
 def collect_news(controls: Dict):
     """Collect news articles and log details to a file"""
     log_dir = os.path.join(os.getcwd(), "logs")
@@ -452,9 +644,8 @@ def collect_news(controls: Dict):
             log_lines.append(f"Custom Query: {controls['custom_query']}")
         log_lines.append(f"Keywords: {st.session_state.keywords}")
         log_lines.append(f"Num Articles: {controls['num_articles']}")
-        if controls['api_key']:
-            Config.SERPAPI_KEY = controls['api_key']
-        if not Config.SERPAPI_KEY:
+        api_key = Config.get_serpapi_key()
+        if not api_key:
             msg = "❌ SerpAPI key is required. Please enter your API key in the sidebar or set it in the .env file."
             st.error(msg)
             log_lines.append(f"[ERROR] {msg}")
@@ -463,6 +654,13 @@ def collect_news(controls: Dict):
             return False
         Config.validate_config()
         all_articles = []
+        search_metadata = {
+            'search_mode': controls['search_mode'],
+            'keywords': st.session_state.keywords,
+            'num_articles': controls['num_articles'],
+            'timestamp': timestamp
+        }
+        
         if controls['search_mode'] == "Counterparty-based":
             if not st.session_state.counterparties:
                 msg = "❌ Please add at least one counterparty to monitor."
@@ -471,6 +669,9 @@ def collect_news(controls: Dict):
                 with open(log_path, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(log_lines))
                 return False
+            search_metadata['counterparties'] = st.session_state.counterparties
+            search_metadata['query'] = ', '.join(st.session_state.counterparties)
+            
             for counterparty in st.session_state.counterparties:
                 with st.spinner(f"🔍 Searching for articles about: '{counterparty}'..."):
                     collector = NewsCollector()
@@ -485,6 +686,9 @@ def collect_news(controls: Dict):
                     time.sleep(2)
         else:
             query = controls['custom_query'] or Config.SEARCH_QUERY
+            search_metadata['query'] = query
+            search_metadata['custom_query'] = controls.get('custom_query', '')
+            
             with st.spinner(f"🔍 Searching for articles with query: '{query}'..."):
                 collector = NewsCollector()
                 all_articles = collector.collect_articles(
@@ -492,6 +696,7 @@ def collect_news(controls: Dict):
                     num_articles=controls['num_articles']
                 )
             log_lines.append(f"[INFO] {len(all_articles)} articles collected for query '{query}'")
+        
         filtered_count = len(all_articles)
         if all_articles:
             if st.session_state.keywords.strip():
@@ -499,11 +704,21 @@ def collect_news(controls: Dict):
                 all_articles = filter_articles_by_keywords(all_articles, st.session_state.keywords)
                 filtered_count = len(all_articles)
                 log_lines.append(f"[INFO] Filtered {original_count} articles to {filtered_count} articles matching keywords")
+            
             st.session_state.articles = all_articles
+            
+            # Save to master file
+            master_file_path = save_to_master_file(all_articles, search_metadata)
+            if master_file_path:
+                log_lines.append(f"[INFO] Articles saved to master file: {master_file_path}")
+                st.success(f"✅ Articles saved to master file! Total sessions: {get_master_file_stats()['total_sessions'] if get_master_file_stats() else 0}")
+            
+            # Also save individual session file if auto-save is enabled
             if controls['auto_save']:
                 filename = f"news_articles_{timestamp}.json"
                 filepath = collector.save_articles(all_articles, filename)
-                log_lines.append(f"[INFO] Articles saved to {filepath}")
+                log_lines.append(f"[INFO] Individual session file saved to {filepath}")
+            
             log_lines.append(f"[SUCCESS] News collection completed successfully! {filtered_count} articles.")
             with open(log_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(log_lines))
@@ -530,41 +745,52 @@ def collect_news(controls: Dict):
             f.write('\n'.join(log_lines))
         return False
 
+def strip_html_tags(text):
+    """Remove HTML tags from a string."""
+    clean = re.compile('<.*?>')
+    return re.sub(clean, '', text)
+
 def display_articles():
     """Display collected articles in a clean format"""
     if not st.session_state.articles:
         return
-    
     st.markdown('<h3 style="font-size: 1.3rem; color: #1f77b4; margin-bottom: 1rem;">📰 Collected Articles (' + str(len(st.session_state.articles)) + ' found)</h3>', unsafe_allow_html=True)
-    
-    # Display search info
     if st.session_state.counterparties:
         st.info(f"**Counterparties monitored:** {', '.join(st.session_state.counterparties)}")
     if st.session_state.keywords.strip():
         keywords_display = ', '.join([kw.strip() for kw in st.session_state.keywords.split('\n') if kw.strip()])
         st.info(f"**Keywords filtered:** {keywords_display}")
-    
-    # Display each article
     for i, article in enumerate(st.session_state.articles, 1):
         with st.container():
+            # Strip HTML tags from article text
+            full_text = strip_html_tags(article.get('text', 'No content available'))
+            words = full_text.split()
+            preview_text = ' '.join(words[:100])
+            show_more = len(words) > 100
+            # Prepare source and author info
+            source = article.get('source', 'Unknown source')
+            authors = ', '.join(article.get('authors', [])) if article.get('authors') else ''
             # Prepare counterparty and keyword tags
-            counterparty_tag = ""
+            counterparty_tag = ''
             if article.get('counterparty'):
-                counterparty_tag = f'<span class="counterparty-tag">🏢 {article.get("counterparty")}</span>'
-            
-            keyword_tags = ""
+                counterparty_tag = f'<span class="counterparty-tag" style="font-size:0.8em;">🏢 {article.get("counterparty")}</span>'
+            keyword_tags = ''
             if article.get('matched_keywords'):
                 for keyword in article.get('matched_keywords', []):
-                    keyword_tags += f'<span class="counterparty-tag">🔍 {keyword}</span>'
-            
+                    keyword_tags += f'<span class="counterparty-tag" style="font-size:0.8em;">🔍 {keyword}</span>'
+            # Render the card
             st.markdown(f"""
             <div class="article-card">
                 <div class="article-title">{i}. {article.get('title', 'No title')}</div>
-                <div class="article-source">📰 Source: {article.get('source', 'Unknown source')}</div>
-                <div class="article-date">📅 Date: {article.get('publish_date', 'Unknown date')[:10] if article.get('publish_date') else 'Unknown date'}</div>
-                {counterparty_tag}
-                {keyword_tags}
-                <div class="article-text">{article.get('text', 'No content available')[:500]}...</div>
+                <div style='font-size:0.9em; color:#888; margin-bottom:0.5em;'>📰 {source}{' | ✍️ ' + authors if authors else ''}</div>
+                <div class="article-date" style='margin-bottom:1em;'>📅 Date: {article.get('publish_date', 'Unknown date')[:10] if article.get('publish_date') else 'Unknown date'}</div>
+                <div class='article-text' style='margin-bottom:1em;'>{preview_text}{'...' if show_more else ''}</div>
+            """, unsafe_allow_html=True)
+            if show_more:
+                with st.expander("Show more"):
+                    st.write(full_text)
+            st.markdown(f"""
+                <div style='margin-top:0.5em;'>{counterparty_tag} {keyword_tags}</div>
                 <a href="{article.get('url', '#')}" target="_blank" class="article-link">🔗 Read full article</a>
             </div>
             """, unsafe_allow_html=True)
@@ -640,7 +866,7 @@ def display_pdf_text():
     
     # Display text in expandable section
     with st.expander("📖 View Extracted Text", expanded=False):
-        st.text_area("PDF Content", st.session_state.pdf_text, height=400, disabled=True)
+        st.markdown(f'<div class="article-text">{st.session_state.pdf_text}</div>', unsafe_allow_html=True)
 
 def export_results():
     """Export results section"""
@@ -682,24 +908,30 @@ def export_results():
             st.success(f"✅ PDF analysis exported to {filepath}")
 
 def news_search_page():
-    st.markdown('<h2 style="font-size: 1.5rem; color: #1f77b4; margin-bottom: 1rem;">🔍 News Search</h2>', unsafe_allow_html=True)
-    st.markdown('<p style="color: #666; margin-bottom: 2rem;">Search for news articles about specific counterparties or custom queries.</p>', unsafe_allow_html=True)
+    st.markdown('<h2 style="font-size: 1.5rem; color: #1f77b4; margin-bottom: 0.5rem;">🔍 News Search</h2>', unsafe_allow_html=True)
+    st.markdown('<p style="color: #666; margin-bottom: 1rem;">Search for news articles about specific counterparties or custom queries.</p>', unsafe_allow_html=True)
 
-    news_search_panel()
+    # Configuration panel in expandable section
+    # Collapse expander if processing or if articles are found
+    should_expand = st.session_state.get("show_news_modal", False) and not st.session_state.is_processing and not st.session_state.articles
+    
+    with st.expander("⚙️ Configure News Analysis", expanded=should_expand):
+        news_search_panel()
 
     if st.session_state.get('collect_news_trigger', False):
         st.session_state.is_processing = True
+        st.session_state.show_news_modal = False  # Collapse expander immediately when processing starts
         controls = {
             'search_mode': st.session_state.search_mode,
             'custom_query': st.session_state.get('custom_query', ""),
             'num_articles': st.session_state.num_articles,
-            'api_key': st.session_state.api_key,
             'collect_button': True,
             'auto_save': st.session_state.auto_save
         }
         success = collect_news(controls)
         st.session_state.is_processing = False
         st.session_state.collect_news_trigger = False
+        # Keep expander collapsed after processing completes
 
     if st.session_state.articles:
         display_articles()
@@ -709,17 +941,23 @@ def news_search_page():
     if not st.session_state.articles and not st.session_state.is_processing:
         st.info("""
         👋 **Welcome to the News Search!**
-        Configure and collect news using the panel above.
+        Click 'Configure News Analysis' to set up and collect news.
         """)
 
 def pdf_analysis_page():
     st.markdown('<h2 style="font-size: 1.5rem; color: #1f77b4; margin-bottom: 1rem;">📄 PDF Analysis</h2>', unsafe_allow_html=True)
     st.markdown('<p style="color: #666; margin-bottom: 2rem;">Upload and analyze PDF documents for risk assessment.</p>', unsafe_allow_html=True)
 
-    pdf_analysis_panel()
+    # Configuration panel in expandable section
+    # Collapse expander if processing or if PDF text is found
+    should_expand = st.session_state.get("show_pdf_modal", False) and not st.session_state.is_processing and not st.session_state.pdf_text
+    
+    with st.expander("⚙️ Configure PDF Analysis", expanded=should_expand):
+        pdf_analysis_panel()
 
     if st.session_state.get('analyze_pdf_trigger', False) and st.session_state.get('uploaded_file'):
         st.session_state.is_processing = True
+        st.session_state.show_pdf_modal = False  # Collapse expander immediately when processing starts
         analysis = analyze_pdf_document(st.session_state.uploaded_file, st.session_state.pdf_keywords)
         if analysis:
             st.session_state.is_processing = False
@@ -737,7 +975,7 @@ def pdf_analysis_page():
     if not st.session_state.pdf_text and not st.session_state.is_processing:
         st.info("""
         👋 **Welcome to the PDF Analysis!**
-        Configure and analyze a PDF using the panel above.
+        Click 'Configure PDF Analysis' to set up and analyze a PDF.
         """)
 
 def main():
@@ -750,11 +988,17 @@ def main():
     # Navigation sidebar
     navigation_sidebar()
     
+    # Master file info in sidebar
+    display_master_file_info()
+    
     # Display current page
     if st.session_state.current_page == "news_search":
         news_search_page()
     else:
         pdf_analysis_page()
+    
+    # Display master file if requested
+    display_master_file()
 
 if __name__ == "__main__":
     main() 
