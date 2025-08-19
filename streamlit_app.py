@@ -399,6 +399,50 @@ def manage_counterparties():
     """Manage counterparty list in sidebar"""
     st.sidebar.header("🏢 Counterparties")
     
+    # Email notification settings
+    with st.sidebar.expander("📧 Email Notifications", expanded=False):
+        st.markdown("**Configure email notifications for news summaries**")
+        
+        # Check if email is configured
+        try:
+            from email_notifier import EmailNotifier
+            email_notifier = EmailNotifier()
+            
+            if email_notifier.sender_email and email_notifier.recipient_emails:
+                st.success("✅ Email configured")
+                st.info(f"**From:** {email_notifier.sender_email}")
+                st.info(f"**To:** {', '.join(email_notifier.recipient_emails[:2])}{'...' if len(email_notifier.recipient_emails) > 2 else ''}")
+                
+                if st.button("📧 Test Email", key="test_email"):
+                    # Send a test email with current articles if available
+                    if st.session_state.articles:
+                        with st.spinner("Sending test email..."):
+                            email_sent = email_notifier.send_news_summary(st.session_state.articles, {
+                                'search_mode': 'Test',
+                                'keywords': 'Test email',
+                                'timestamp': datetime.now().isoformat()
+                            })
+                            if email_sent:
+                                st.success("Test email sent successfully!")
+                            else:
+                                st.error("Failed to send test email")
+                    else:
+                        st.warning("No articles available for test email")
+            else:
+                st.warning("⚠️ Email not configured")
+                st.info("Configure email in `email_config.json` or set environment variables")
+                
+        except ImportError:
+            st.error("❌ Email module not available")
+            st.info("Install required dependencies for email notifications")
+        
+        st.markdown("---")
+        st.markdown("**Setup Instructions:**")
+        st.markdown("1. Edit `email_config.json`")
+        st.markdown("2. Add your Gmail credentials")
+        st.markdown("3. List recipient email addresses")
+        st.markdown("4. Use Gmail App Password (not regular password)")
+    
     # Add new counterparty
     with st.sidebar.expander("➕ Add Counterparty", expanded=False):
         new_counterparty = st.text_input(
@@ -833,6 +877,15 @@ def collect_news(controls: Dict):
     log_filename = f"news_collect_{timestamp}.log"
     log_path = os.path.join(log_dir, log_filename)
     log_lines = []
+    
+    # Import email notifier
+    try:
+        from email_notifier import EmailNotifier
+        email_notifier = EmailNotifier()
+        email_enabled = True
+    except ImportError:
+        email_enabled = False
+        st.warning("Email notification module not found. Install required dependencies.")
     try:
         log_lines.append(f"[INFO] Collect News Run at {timestamp}")
         log_lines.append(f"Search Mode: {controls['search_mode']}")
@@ -934,6 +987,21 @@ def collect_news(controls: Dict):
                 filename = f"news_articles_{timestamp}.json"
                 filepath = collector.save_articles(all_articles, filename)
                 log_lines.append(f"[INFO] Individual session file saved to {filepath}")
+            
+            # Send email notification if enabled
+            if email_enabled and all_articles:
+                try:
+                    with st.spinner("📧 Sending email notification..."):
+                        email_sent = email_notifier.send_news_summary(all_articles, search_metadata)
+                        if email_sent:
+                            st.success("📧 Email notification sent successfully!")
+                            log_lines.append(f"[INFO] Email notification sent to {len(email_notifier.recipient_emails)} recipients")
+                        else:
+                            st.warning("⚠️ Email notification failed to send")
+                            log_lines.append(f"[WARNING] Email notification failed to send")
+                except Exception as e:
+                    st.warning(f"⚠️ Email notification error: {e}")
+                    log_lines.append(f"[ERROR] Email notification error: {e}")
             
             log_lines.append(f"[SUCCESS] News collection completed successfully! {filtered_count} articles.")
             with open(log_path, 'w', encoding='utf-8') as f:
