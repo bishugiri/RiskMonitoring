@@ -15,130 +15,111 @@ A comprehensive tool for monitoring financial risks by collecting and analyzing 
 - 📋 **Detailed Reporting**: Provides comprehensive risk summaries and top risk identification
 - 🔧 **Configurable**: Customizable search queries, article counts, and analysis parameters
 - 🌐 **Web Interface**: Interactive Streamlit web application with navigation
+- ⏱️ **Automated Data Refresh**: Daily scheduled data collection and analysis
 
-## Risk Categories Analyzed
+## Project Structure
 
-- **Market Risk**: Crashes, bear markets, volatility, corrections
-- **Economic Risk**: Inflation, debt, interest rates, unemployment
-- **Geopolitical Risk**: Wars, sanctions, trade conflicts, political instability
-- **Sector Risk**: Tech bubbles, real estate, energy crises, cybersecurity
-- **Positive Sentiment**: Growth, profits, opportunities, recovery
+```
+risk_monitor/
+├── api/                    # API and web interface
+│   └── streamlit_app.py    # Web application interface
+├── config/                 # Configuration settings
+│   └── settings.py         # Main configuration module
+├── core/                   # Core functionality
+│   ├── news_collector.py   # News collection module
+│   ├── risk_analyzer.py    # Risk analysis module
+│   └── scheduler.py        # Automated data refresh scheduler
+├── data/                   # Data storage and management
+├── models/                 # Data models and schemas
+├── scripts/                # Entry point scripts
+│   ├── run_data_refresh.py # Script to run the data refresh scheduler
+│   └── run_app.py          # Script to run the web application
+└── utils/                  # Utility functions
+    └── sentiment.py        # Sentiment analysis utilities
+```
 
 ## Installation
+
+See [QUICKSTART.md](QUICKSTART.md) for a quick installation guide or [USAGE.md](USAGE.md) for detailed instructions.
+
+### Quick Install
 
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd Riskmonitortool
+   cd RiskMonitoring
    ```
 
-2. **Install dependencies**:
+2. **Run the installation script**:
    ```bash
-   pip install -r requirements.txt
+   python install.py
    ```
 
-3. **Set up your SerpAPI key**:
-   - Get a free API key from [SerpAPI](https://serpapi.com/)
-   - Create a `.env` file in the project root and add your API key:
-   ```
-   SERPAPI_KEY=your_actual_api_key_here
-   ```
+3. **Configure API keys**:
+   - Edit `.streamlit/secrets.toml` with your API keys:
+     ```toml
+     OPENAI_API_KEY = "your_openai_api_key_here"
+     SERPAPI_KEY = "your_serpapi_key_here"
+     PINECONE_API_KEY = "your_pinecone_api_key_here"
+     ```
 
 ## Usage
 
-### 🌐 Web Interface (Recommended)
+### Web Interface
 
-Launch the interactive Streamlit web application:
+Launch the interactive web application:
 
 ```bash
-# Windows (double-click or run)
-run_streamlit.bat
+# Using the convenience scripts
+./run_app.sh  # On macOS/Linux
+run_app.bat   # On Windows
 
-# Or manually
-streamlit run streamlit_app.py
+# Using the Python module
+python -m risk_monitor.scripts.run_app
 ```
 
-The web interface provides two main data sources with easy navigation:
+### Data Refresh Scheduler
 
-#### 🔍 **News Search Mode**
-- **Counterparty Management**: Add, remove, and manage companies to monitor
-- **Keyword Filtering**: Set custom keywords to filter relevant articles
-- **Search Modes**: Choose between counterparty-based or custom query search
-- **Interactive Controls**: Set search queries and number of articles via sidebar
-- **Real-time Analysis**: View results as they're processed
-- **Risk Analysis**: See risk scores, sentiment, and category breakdown for news articles
-- **Export Options**: Download results in JSON format
+Set up and run the automated data collection scheduler:
 
-#### 📄 **PDF Analysis Mode**
-- **PDF Upload**: Upload PDF documents for risk analysis
-- **Text Extraction**: Automatically extract text from PDF files
-- **Keyword Search**: Filter PDF content based on custom keywords
-- **Risk Assessment**: Analyze extracted text for various risk categories
-- **Text Preview**: View extracted text in expandable sections
-- **Export Options**: Save analysis results and text previews
+```bash
+# Set up the scheduler configuration
+python -m risk_monitor.scripts.run_data_refresh --setup
 
-## Branch Workflow
+# Run the scheduler immediately
+python -m risk_monitor.scripts.run_data_refresh --run-now
 
-- All development should be done on the `dev` branch.
-- The `prod` branch is for deployment and production releases only.
-- Use pull requests to merge changes from `dev` to `prod`.
-- Branch protection is recommended for `prod` to prevent direct pushes.
+# Start the scheduler daemon
+python -m risk_monitor.scripts.run_data_refresh
+```
+
+For more detailed usage instructions, see [USAGE.md](USAGE.md).
+
+## Automated Daily Data Refresh
+
+The scheduler runs daily at 8:00 AM ET (configurable) and performs the following tasks:
+
+1. Fetches articles for each entity via SerpAPI
+2. Uses OpenAI API for sentiment analysis with reasoning
+3. Assigns sentiment labels (Positive, Neutral, Negative) and numerical scores
+4. Saves results to JSON files in the output directory
+
+## Configuration
+
+The tool uses multiple configuration files:
+
+- **`.streamlit/secrets.toml`**: API keys and secrets
+- **`scheduler_config.json`**: Scheduler configuration
+- **`risk_monitor/config/settings.py`**: General application settings
 
 ## Output
 
 The tool generates different types of output files in the `output/` directory:
 
-### 1. News Articles (`finance_news_YYYYMMDD_HHMMSS.json`)
-Contains the raw collected articles with:
-- Article title, URL, and source
-- Full text content
-- Publication date and authors
-- Meta information (keywords, summary, description)
-- **Counterparty information** (when using counterparty-based search)
-- **Matched keywords** (when using keyword filtering)
-
-### 2. Risk Analysis (`risk_analysis_YYYYMMDD_HHMMSS.json`)
-Contains comprehensive risk analysis:
-- Overall risk and sentiment scores
-- Risk breakdown by category
-- Top risk articles identified
-- Keyword frequency analysis
-- Source-by-source risk analysis
-- **Counterparty-specific risk analysis**
-
-### 3. PDF Analysis (`pdf_analysis_YYYYMMDD_HHMMSS.json`)
-Contains PDF analysis results:
-- Original filename
-- Extracted text length
-- Extraction timestamp
-- Text preview (first 1000 characters)
-- Risk analysis results
-
-## Quick Start
-
-1. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Set up API key**:
-   - Create a `.env` file and add your SerpAPI key:
-   ```
-   SERPAPI_KEY=your_actual_api_key_here
-   ```
-
-3. **Launch web interface**:
-   ```bash
-   streamlit run streamlit_app.py
-   ```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (from `dev`)
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request to `dev`
+- **News Articles**: `finance_news_YYYYMMDD_HHMMSS.json`
+- **Risk Analysis**: `risk_analysis_YYYYMMDD_HHMMSS.json`
+- **PDF Analysis**: `pdf_analysis_YYYYMMDD_HHMMSS.json`
+- **Scheduled Data**: `scheduled_news_YYYYMMDD_HHMMSS.json`
 
 ## License
 
@@ -147,27 +128,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Disclaimer
 
 This tool is for educational and research purposes. The risk analysis provided should not be considered as financial advice. Always conduct your own research and consult with financial professionals before making investment decisions.
-
-## Support
-
-For issues and questions:
-1. Check the logs in `risk_monitor.log`
-2. Verify your SerpAPI key is valid
-3. Ensure all dependencies are installed
-4. Check your internet connection
-
-## Future Enhancements
-
-- Real-time monitoring with scheduled runs
-- Email/SMS alerts for high-risk events
-- Integration with trading platforms
-- Machine learning-based risk prediction
-- Advanced web dashboard features
-- Historical risk trend analysis
-- Mobile-responsive design improvements
-- Counterparty risk scoring and ranking
-- Automated counterparty discovery
-- Multi-language support for international companies
-- Support for additional document formats (DOCX, TXT)
-- Advanced PDF text extraction with OCR
-- Document comparison and trend analysis 

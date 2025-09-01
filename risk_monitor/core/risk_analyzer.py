@@ -1,9 +1,20 @@
+"""
+Risk analyzer module for the Risk Monitor application.
+Analyzes news articles for potential risks and market sentiment.
+"""
+
 import re
 import logging
-from typing import List, Dict, Tuple
-from collections import Counter
+import os
 import json
+from typing import List, Dict, Tuple, Any
+from collections import Counter
 from datetime import datetime
+from urllib.parse import urlparse
+
+from risk_monitor.config.settings import Config
+from risk_monitor.utils.sentiment import analyze_sentiment_sync
+from risk_monitor.utils.pinecone_db import PineconeDB
 
 class RiskAnalyzer:
     """Analyzes news articles for potential risks and market sentiment"""
@@ -11,6 +22,7 @@ class RiskAnalyzer:
     def __init__(self):
         self.setup_logging()
         self.load_risk_keywords()
+        self.config = Config()
     
     def setup_logging(self):
         """Setup logging configuration"""
@@ -143,7 +155,6 @@ class RiskAnalyzer:
     def extract_source(self, url: str) -> str:
         """Extract source domain from URL"""
         try:
-            from urllib.parse import urlparse
             parsed = urlparse(url)
             return parsed.netloc
         except:
@@ -303,13 +314,14 @@ class RiskAnalyzer:
     
     def save_analysis(self, analysis: Dict, filename: str = None) -> str:
         """Save analysis results to a file"""
-        from config import Config
-        
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"risk_analysis_{timestamp}.json"
         
-        filepath = f"{Config.OUTPUT_DIR}/{filename}"
+        # Ensure output directory exists
+        os.makedirs(self.config.OUTPUT_DIR, exist_ok=True)
+        
+        filepath = os.path.join(self.config.OUTPUT_DIR, filename)
         
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -320,4 +332,136 @@ class RiskAnalyzer:
             
         except Exception as e:
             self.logger.error(f"Error saving analysis: {e}")
-            raise 
+            raise
+    
+    def analyze_articles_with_sentiment(self, articles: List[Dict], sentiment_method: str = 'lexicon') -> List[Dict]:
+        """
+        Analyze articles with comprehensive sentiment and risk analysis
+        Returns individual analysis results for each article
+        """
+        self.logger.info(f"Analyzing {len(articles)} articles with sentiment analysis")
+        
+        analysis_results = []
+        
+        for article in articles:
+            # Perform risk analysis
+            risk_analysis = self.analyze_single_article(article)
+            
+            # Perform sentiment analysis
+            text = article.get('text', '')
+            sentiment_analysis = analyze_sentiment_sync(text, sentiment_method, self.config.get_openai_api_key())
+            
+            # Create comprehensive analysis result
+            comprehensive_analysis = {
+                'article_metadata': {
+                    'url': article.get('url', ''),
+                    'title': article.get('title', ''),
+                    'source': risk_analysis.get('source', ''),
+                    'publish_date': article.get('publish_date', ''),
+                    'authors': article.get('authors', []),
+                    'extraction_time': article.get('extraction_time', ''),
+                    'analysis_timestamp': datetime.now().isoformat()
+                },
+                'sentiment_analysis': sentiment_analysis,
+                'risk_analysis': risk_analysis,
+                'analysis_method': sentiment_method
+            }
+            
+            analysis_results.append(comprehensive_analysis)
+        
+        return analysis_results
+    
+    def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'lexicon') -> Dict[str, Any]:
+        """
+        Analyze articles and store results in Pinecone database (with local fallback)
+        Returns comprehensive results with storage statistics
+        """
+        try:
+            # Analyze articles first
+            analysis_results = self.analyze_articles_with_sentiment(articles, sentiment_method)
+            
+            # Store in Pinecone only
+            pinecone_db = PineconeDB()
+            storage_stats = pinecone_db.store_articles_batch(articles, analysis_results)
+            storage_type = "pinecone"
+            self.logger.info("Successfully stored articles in Pinecone")
+            
+            # Create comprehensive summary
+            summary = {
+                'analysis_summary': {
+                    'total_articles': len(articles),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                    'sentiment_method': sentiment_method,
+                    'storage_type': storage_type,
+                    'storage_stats': storage_stats
+                },
+                'sentiment_summary': self._calculate_sentiment_summary(analysis_results),
+                'risk_summary': self._calculate_risk_summary(analysis_results),
+                'source_summary': self._calculate_source_summary(articles, analysis_results),
+                'individual_analyses': analysis_results
+            }
+            
+            return summary
+            
+        except Exception as e:
+            self.logger.error(f"Error in analyze_and_store_in_pinecone: {e}")
+            raise
+    
+    def _calculate_sentiment_summary(self, analysis_results: List[Dict]) -> Dict:
+        """Calculate sentiment summary across all articles"""
+        sentiment_scores = [result['sentiment_analysis']['score'] for result in analysis_results]
+        sentiment_categories = [result['sentiment_analysis']['category'] for result in analysis_results]
+        
+        category_counts = Counter(sentiment_categories)
+        
+        return {
+            'average_sentiment_score': sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0,
+            'sentiment_distribution': dict(category_counts),
+            'positive_count': category_counts.get('Positive', 0),
+            'negative_count': category_counts.get('Negative', 0),
+            'neutral_count': category_counts.get('Neutral', 0)
+        }
+    
+    def _calculate_risk_summary(self, analysis_results: List[Dict]) -> Dict:
+        """Calculate risk summary across all articles"""
+        risk_scores = [result['risk_analysis']['risk_score'] for result in analysis_results]
+        
+        return {
+            'average_risk_score': sum(risk_scores) / len(risk_scores) if risk_scores else 0,
+            'high_risk_articles': len([score for score in risk_scores if score > 5]),
+            'medium_risk_articles': len([score for score in risk_scores if 2 <= score <= 5]),
+            'low_risk_articles': len([score for score in risk_scores if score < 2])
+        }
+    
+    def _calculate_source_summary(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict:
+        """Calculate source summary across all articles"""
+        source_analysis = {}
+        
+        for article, analysis in zip(articles, analysis_results):
+            source = analysis['risk_analysis']['source']
+            
+            if source not in source_analysis:
+                source_analysis[source] = {
+                    'article_count': 0,
+                    'avg_sentiment_score': 0,
+                    'avg_risk_score': 0,
+                    'total_sentiment_score': 0,
+                    'total_risk_score': 0
+                }
+            
+            source_analysis[source]['article_count'] += 1
+            source_analysis[source]['total_sentiment_score'] += analysis['sentiment_analysis']['score']
+            source_analysis[source]['total_risk_score'] += analysis['risk_analysis']['risk_score']
+        
+        # Calculate averages
+        for source in source_analysis:
+            count = source_analysis[source]['article_count']
+            if count > 0:
+                source_analysis[source]['avg_sentiment_score'] = (
+                    source_analysis[source]['total_sentiment_score'] / count
+                )
+                source_analysis[source]['avg_risk_score'] = (
+                    source_analysis[source]['total_risk_score'] / count
+                )
+        
+        return source_analysis

@@ -1,0 +1,18 @@
+{
+    "run_time": "08:00",
+    "timezone": "US/Eastern",
+    "articles_per_entity": 2,
+    "entities": [
+        "Apple Inc",
+        "Goldman Sachs"
+    ],
+    "keywords": [
+        "risk",
+        "financial"
+    ],
+    "use_openai": true,
+    "email_enabled": true,
+    "email_recipients": [
+        "be2020se709@gces.edu.np"
+    ]
+}
