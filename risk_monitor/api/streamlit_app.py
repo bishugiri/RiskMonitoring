@@ -170,8 +170,8 @@ def load_custom_css():
         color: #28B463;
     }
     .badge-neutral {
-        background-color: #E0F2FF;
-        color: #3498DB;
+        background-color: #E3F2FD;
+        color: #1976D2;
     }
     .badge-negative {
         background-color: #FADBD8;
@@ -388,7 +388,7 @@ def display_dashboard_metrics():
             values='Count',
             names='Sentiment',
             color='Sentiment',
-            color_discrete_map={'Positive': '#2ECC71', 'Negative': '#E74C3C', 'Neutral': '#3498DB'},
+            color_discrete_map={'Negative': '#E74C3C', 'Positive': '#2ECC71', 'Neutral': '#3498DB'},
             title="Distribution of Article Sentiment"
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -670,7 +670,7 @@ def main():
                             sentiment_df = pd.DataFrame(list(sentiment_dist.items()), columns=['Category', 'Count'])
                             fig = px.pie(sentiment_df, values='Count', names='Category', 
                                        color='Category',
-                                       color_discrete_map={'Positive': '#2ECC71', 'Negative': '#E74C3C', 'Neutral': '#3498DB'},
+                                       color_discrete_map={'Negative': '#E74C3C', 'Positive': '#2ECC71', 'Neutral': '#3498DB'},
                                        title="Article Sentiment Distribution")
                             st.plotly_chart(fig, use_container_width=True)
                         
