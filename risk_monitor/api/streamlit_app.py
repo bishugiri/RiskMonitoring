@@ -417,6 +417,10 @@ def navigation_sidebar():
     if st.sidebar.button("📄 PDF Analysis", key="nav_pdf", use_container_width=True, type="primary" if st.session_state.current_page == "pdf_analysis" else "secondary"):
         st.session_state.current_page = "pdf_analysis"
         st.rerun()
+
+    if st.sidebar.button("🤖 RAG Chat", key="nav_rag", use_container_width=True, type="primary" if st.session_state.current_page == "rag_chat" else "secondary"):
+        st.session_state.current_page = "rag_chat"
+        st.rerun()
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
 def display_article_card(article: Dict):
@@ -822,6 +826,194 @@ def main():
                 st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.warning("No relevant content was found in the PDF after filtering.")
+
+    # --- RAG Chat View ---
+    elif st.session_state.current_page == "rag_chat":
+        st.title("🏦 Financial Data AI Agent Chat")
+        st.markdown("Chat with AI about your stored financial data and get insights.")
+        
+        # Initialize RAG service
+        try:
+            from risk_monitor.core.rag_service import RAGService
+            rag_service = RAGService()
+            
+            # Get database stats
+            db_stats = rag_service.get_database_stats()
+            
+            # Display database info
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📊 Total Articles", db_stats.get('total_articles', 0))
+            with col2:
+                st.metric("🔢 Index Dimension", db_stats.get('index_dimension', 0))
+            with col3:
+                st.metric("📈 Index Fullness", f"{db_stats.get('index_fullness', 0):.2%}")
+            
+            st.markdown("---")
+            
+            # Initialize chat history
+            if 'chat_history' not in st.session_state:
+                st.session_state.chat_history = []
+            
+            # Render chat history using Streamlit's native chat_message (inspired by banking AI)
+            for chat in st.session_state.chat_history:
+                with st.chat_message(chat["role"]):
+                    if chat["role"] == "assistant":
+                        # Show articles used count for AI messages
+                        articles_used = chat.get('articles_used', 0)
+                        if articles_used > 0:
+                            st.caption(f"📰 Analyzed {articles_used} articles from your database")
+                        st.markdown(chat["content"])
+                    else:
+                        st.markdown(chat["content"])
+            
+            # Chat input using Streamlit's native chat_input (inspired by banking AI)
+            user_query = st.chat_input("Ask about companies, market sentiment, risks, or financial insights...")
+            
+            if user_query:
+                # Display user message immediately (like banking AI)
+                with st.chat_message("user"):
+                    st.markdown(user_query)
+                
+                # Add user message to chat history
+                st.session_state.chat_history.append({
+                    "role": "user", 
+                    "type": "text", 
+                    "content": user_query,
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                })
+                
+                # Limit chat history to 10 conversations (20 messages: 10 user + 10 AI)
+                if len(st.session_state.chat_history) >= 20:
+                    st.session_state.chat_history = st.session_state.chat_history[2:]
+                
+                # Get AI response with context from previous messages
+                with st.chat_message("assistant"):
+                    with st.spinner("🤖 Analyzing your financial data..."):
+                        # Pass conversation context to RAG service
+                        conversation_context = ""
+                        if len(st.session_state.chat_history) > 1:
+                            # Include last few messages for context
+                            recent_messages = st.session_state.chat_history[-6:]  # Last 3 exchanges
+                            conversation_context = "\n".join([
+                                f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+                                for msg in recent_messages[:-1]  # Exclude current user message
+                            ])
+                        
+                        # Use raw query format with conversation context
+                        raw_query = user_query.strip()
+                        if conversation_context:
+                            enhanced_query = f"Context from previous conversation:\n{conversation_context}\n\nCurrent question: {raw_query}"
+                        else:
+                            enhanced_query = raw_query
+                        
+                        response = rag_service.chat_with_agent(enhanced_query)
+                        
+                        # Show articles used count
+                        articles_used = response.get('articles_used', 0)
+                        if articles_used > 0:
+                            st.caption(f"📰 Analyzed {articles_used} articles from your database")
+                        
+                        # Add AI response to history
+                        st.session_state.chat_history.append({
+                            "role": "assistant", 
+                            "type": "text", 
+                            "content": response['response'],
+                            "timestamp": datetime.now().strftime("%H:%M:%S"),
+                            "articles_used": articles_used
+                        })
+                        
+                        st.markdown(response['response'])
+            
+            # Clear chat button
+            if st.session_state.chat_history:
+                st.markdown("---")
+                col1, col2 = st.columns([1, 4])
+                with col1:
+                    if st.button("Clear", type="secondary"):
+                        st.session_state.chat_history = []
+                        st.rerun()
+            
+            # Show recent articles used with detailed metadata
+            if st.session_state.chat_history and st.session_state.chat_history[-1]['role'] == 'assistant':
+                last_response = st.session_state.chat_history[-1]
+                if 'articles_used' in last_response and last_response['articles_used'] > 0:
+                    st.markdown("---")
+                    st.markdown("### 📰 Data Sources Used")
+                    st.markdown("*These are the actual articles from your database that were analyzed to generate the response above.*")
+                    
+                    # Get ALL the articles from the last response (no limit)
+                    if hasattr(rag_service, 'last_articles') and rag_service.last_articles:
+                        total_articles = len(rag_service.last_articles)
+                        st.markdown(f"**📊 Total References Analyzed: {total_articles} articles**")
+                        
+                        # Show sentiment distribution
+                        sentiment_counts = {}
+                        for article in rag_service.last_articles:
+                            sentiment = article.get('sentiment_category', 'Unknown')
+                            sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
+                        
+                        if sentiment_counts:
+                            st.markdown("**📈 Sentiment Distribution:**")
+                            for sentiment, count in sentiment_counts.items():
+                                st.markdown(f"- {sentiment}: {count} articles")
+                        
+                        st.markdown("---")
+                        
+                        # Display ALL articles with pagination for better UX
+                        articles_per_page = 5
+                        total_pages = (total_articles + articles_per_page - 1) // articles_per_page
+                        
+                        if total_pages > 1:
+                            page = st.selectbox(
+                                "Select page to view references:",
+                                options=range(1, total_pages + 1),
+                                format_func=lambda x: f"Page {x} (References {(x-1)*articles_per_page + 1}-{min(x*articles_per_page, total_articles)})"
+                            )
+                            start_idx = (page - 1) * articles_per_page
+                            end_idx = min(start_idx + articles_per_page, total_articles)
+                            current_articles = rag_service.last_articles[start_idx:end_idx]
+                        else:
+                            current_articles = rag_service.last_articles
+                        
+                        # Display current page articles
+                        for i, article in enumerate(current_articles, start_idx + 1 if total_pages > 1 else 1):
+                            sentiment = article.get('sentiment_category', 'Unknown').lower()
+                            badge_class = f"badge-{sentiment}"
+                            
+                            with st.expander(f"📄 [REFERENCE {i}] {article.get('title', 'Unknown')}", expanded=False):
+                                col1, col2 = st.columns([2, 1])
+                                
+                                with col1:
+                                    st.markdown(f"**Source:** {article.get('source', 'Unknown')}")
+                                    st.markdown(f"**URL:** {article.get('url', 'N/A')}")
+                                    st.markdown(f"**Published:** {article.get('publish_date', 'Unknown')}")
+                                    if article.get('authors'):
+                                        st.markdown(f"**Authors:** {', '.join(article.get('authors', []))}")
+                                
+                                with col2:
+                                    st.markdown(f"**Sentiment:** <span class='badge {badge_class}'>{article.get('sentiment_category', 'Unknown').upper()}</span>", unsafe_allow_html=True)
+                                    st.markdown(f"**Sentiment Score:** `{article.get('sentiment_score', 0)}`")
+                                    st.markdown(f"**Risk Score:** `{article.get('risk_score', 0)}`")
+                                
+                                st.markdown("**Summary:**")
+                                st.info(article.get('summary', 'No summary available'))
+                                
+                                if article.get('keywords'):
+                                    st.markdown("**Keywords:**")
+                                    st.write(', '.join(article.get('keywords', [])))
+                                
+                                st.markdown("**Full Text (excerpt):**")
+                                st.code(article.get('text', 'No text available')[:500] + "...", language='text')
+                        
+                        # Show pagination info if needed
+                        if total_pages > 1:
+                            st.markdown(f"*Showing page {page} of {total_pages} (References {start_idx + 1}-{end_idx} of {total_articles})*")
+        
+        except ImportError:
+            st.error("❌ RAG service not available. Please ensure all dependencies are installed.")
+        except Exception as e:
+            st.error(f"❌ Error initializing RAG service: {str(e)}")
 
 # Entry point of the script
 if __name__ == "__main__":
