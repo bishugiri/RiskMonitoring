@@ -471,7 +471,7 @@ def get_scheduler_status():
                 pass
         
         return is_running, process_ids, status_info
-            except Exception:
+    except Exception as e:
         return False, [], {}
 
 # --- UI/UX Components ---
@@ -1374,12 +1374,12 @@ def main():
                 config["enable_dual_sentiment"] = enable_dual_sentiment
             
             with col2:
-            enable_pinecone_storage = st.checkbox(
+                enable_pinecone_storage = st.checkbox(
                     "Enable Pinecone Vector Storage",
-                value=config.get("enable_pinecone_storage", True),
+                    value=config.get("enable_pinecone_storage", True),
                     help="Store articles in Pinecone vector database"
-            )
-            config["enable_pinecone_storage"] = enable_pinecone_storage
+                )
+                config["enable_pinecone_storage"] = enable_pinecone_storage
         
         with email_tab:
             st.subheader("Email Notification Settings")
@@ -1474,7 +1474,7 @@ def main():
                         value=last_run.strftime("%H:%M"),
                         delta=f"{last_run.strftime('%Y-%m-%d')}"
                     )
-            else:
+                else:
                     st.metric(label="Last Run", value="Unknown")
             
             with col2:
@@ -1507,10 +1507,10 @@ def main():
             with col2:
                 if st.button("📧 Unsubscribe from Email Reports", type="secondary"):
                     success, message = update_email_subscription(False)
-                        if success:
+                    if success:
                         st.success("✅ Email subscription disabled! Daily news collection and analysis will continue.")
-                            st.rerun()
-                        else:
+                        st.rerun()
+                    else:
                         st.error(f"❌ Error disabling email: {message}")
             
             # Current email status
@@ -1542,7 +1542,7 @@ def main():
                         
                         with st.expander(f"📄 {log_file} (last 10 lines)"):
                             st.code("".join(recent_lines), language="text")
-                        except Exception as e:
+                    except Exception as e:
                         st.warning(f"Could not read {log_file}: {e}")
         
         # Save configuration section
@@ -1560,7 +1560,7 @@ def main():
                 if success:
                     st.success(message)
                     st.balloons()
-            else:
+                else:
                     st.error(message)
         
         with col3:
