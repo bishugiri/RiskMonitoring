@@ -1,40 +1,40 @@
-# 🤖 AI Financial Risk Monitoring System
+# AI Financial Risk Monitoring System
 
 A comprehensive AI-powered financial risk monitoring system that automatically collects, analyzes, and reports on financial news and market sentiment. Built with Python, Streamlit, and OpenAI's GPT models for advanced sentiment analysis and risk assessment.
 
-## 🚀 Features
+## Features
 
-### 📰 **Automated News Collection**
+### Automated News Collection
 - **Real-time News Fetching**: Automatically collects financial news from multiple sources using SerpAPI
 - **Company-Specific Monitoring**: Monitor specific companies (NASDAQ-100 support) for risk-related news
 - **Keyword Filtering**: Advanced filtering based on risk keywords (financial, market, crisis, volatility, etc.)
 - **Scheduled Collection**: Daily automated news collection at configurable times
 
-### 🧠 **AI-Powered Analysis**
+### AI-Powered Analysis
 - **Dual Sentiment Analysis**: Combines lexicon-based and LLM (GPT-4) sentiment analysis
 - **Risk Assessment**: Comprehensive risk analysis across multiple categories
 - **AI Financial Assistant**: Interactive chat interface for querying financial data
 - **Contextual Understanding**: Advanced NLP for financial context comprehension
 
-### 📊 **Data Management**
+### Data Management
 - **Pinecone Vector Database**: Scalable vector storage for semantic search
 - **Local Storage**: JSON-based local storage with indexing
 - **Data Export**: Comprehensive data export in structured formats
 - **Historical Analysis**: Track sentiment and risk trends over time
 
-### 📧 **Automated Reporting**
+### Automated Reporting
 - **Daily Email Reports**: Automated daily summaries sent via SMTP
 - **Detailed Analysis**: Comprehensive risk summaries with article links
 - **Top Risk Alerts**: Identification of most negative sentiment articles
 - **Configurable Recipients**: Multiple email recipient support
 
-### 🎛️ **Configuration & Control**
+### Configuration & Control
 - **Web-based Configuration**: Interactive scheduler configuration UI
 - **Real-time Status Monitoring**: Live scheduler status and process monitoring
 - **Email Subscription Controls**: Enable/disable email notifications
 - **Flexible Scheduling**: Configurable run times and timezones
 
-## 🏗️ Architecture
+## Architecture
 
 ### System Architecture Overview
 
@@ -145,9 +145,9 @@ RiskMonitoring/
 └── setup.py                     # Package setup
 ```
 
-## 🔄 Workflow
+## Workflow
 
-### 1. **Automated Daily Workflow**
+### 1. Automated Daily Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -217,7 +217,7 @@ RiskMonitoring/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2. **Interactive Web Workflow**
+### 2. Interactive Web Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -266,7 +266,7 @@ RiskMonitoring/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3. **AI Financial Assistant Workflow**
+### 3. AI Financial Assistant Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -314,7 +314,7 @@ RiskMonitoring/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4. **Data Flow Architecture**
+### 4. Data Flow Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -345,7 +345,7 @@ RiskMonitoring/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 🛠️ Installation
+## Installation
 
 ### Prerequisites
 - Python 3.8 or higher
@@ -386,7 +386,7 @@ RiskMonitoring/
    EMAIL_SUBJECT_PREFIX = "Risk Monitor"
    ```
 
-## 🚀 Usage
+## Usage
 
 ### Web Application
 
@@ -407,31 +407,31 @@ streamlit run risk_monitor/api/streamlit_app.py
 
 ### Web Interface Features
 
-#### 📊 **Dashboard**
+#### Dashboard
 - Overview of analyzed articles
 - Sentiment distribution charts
 - Recent analysis results
 - System status indicators
 
-#### 📰 **News Analysis**
+#### News Analysis
 - **Counterparty-based Search**: Monitor specific companies
 - **Custom Query Search**: Use custom search terms
 - **Keyword Filtering**: Focus on risk-related content
 - **Real-time Analysis**: Immediate sentiment and risk assessment
 
-#### 📄 **PDF Analysis**
+#### PDF Analysis
 - Upload and analyze PDF documents
 - Keyword-based content filtering
 - Risk assessment for documents
 - Export analysis results
 
-#### 🤖 **AI Financial Assistant**
+#### AI Financial Assistant
 - Interactive chat interface
 - Query your financial database
 - Get insights about companies and market sentiment
 - Access analyzed articles and trends
 
-#### ⏰ **Scheduler Configuration**
+#### Scheduler Configuration
 - **Schedule Tab**: Configure run times and timezones
 - **Companies Tab**: Manage monitored companies (NASDAQ-100 dropdown)
 - **Analysis Tab**: Configure keywords and analysis options
@@ -465,7 +465,7 @@ The system automatically sends daily email reports containing:
 - Risk assessment summaries
 - Links to original articles
 
-## ⚙️ Configuration
+## Configuration
 
 ### Scheduler Configuration
 
@@ -500,7 +500,7 @@ export SMTP_USER="your-email@gmail.com"
 export SMTP_PASSWORD="your-app-password"
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -528,7 +528,7 @@ export SMTP_PASSWORD="your-app-password"
 - `logs/news_collect_*.log`: News collection logs
 - `scheduler_background.log`: Background process logs
 
-## 📊 Data Output
+## Data Output
 
 ### Generated Files
 
@@ -562,7 +562,7 @@ Each article contains:
 }
 ```
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -570,11 +570,11 @@ Each article contains:
 4. Test thoroughly
 5. Submit a pull request
 
-## 📄 License
+## License
 
 © 2024 Er. Bibit Kunwar Chhetri. All rights reserved.
 
-## 🆘 Support
+## Support
 
 For issues and questions:
 1. Check the troubleshooting section
