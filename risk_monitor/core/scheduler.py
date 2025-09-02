@@ -21,7 +21,16 @@ from risk_monitor.core.news_collector import NewsCollector
 from risk_monitor.core.risk_analyzer import RiskAnalyzer
 from risk_monitor.config.settings import Config
 from risk_monitor.utils.sentiment import analyze_sentiment_lexicon
-from risk_monitor.utils.emailer import send_html_email, format_daily_summary_html
+from risk_monitor.utils.emailer import send_html_email, format_daily_summary_html, format_detailed_email_html
+
+# Try to import PineconeDB, but handle gracefully if not available
+try:
+    from risk_monitor.utils.pinecone_db import PineconeDB
+    PINECONE_AVAILABLE = True
+except ImportError:
+    PINECONE_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("PineconeDB not available - Pinecone storage will be disabled")
 
 # Configure logging
 logger = logging.getLogger("scheduler")
@@ -50,6 +59,10 @@ class SchedulerConfig:
         # Email settings
         self.email_enabled = True
         self.email_recipients = []
+        # Enhanced automation features
+        self.enable_pinecone_storage = PINECONE_AVAILABLE
+        self.enable_dual_sentiment = True
+        self.enable_detailed_email = True
         self.load_config()
     
     def load_config(self):
@@ -67,6 +80,9 @@ class SchedulerConfig:
                 self.use_openai = config.get('use_openai', True)
                 self.email_enabled = config.get('email_enabled', True)
                 self.email_recipients = config.get('email_recipients', [])
+                self.enable_pinecone_storage = config.get('enable_pinecone_storage', PINECONE_AVAILABLE) and PINECONE_AVAILABLE
+                self.enable_dual_sentiment = config.get('enable_dual_sentiment', True)
+                self.enable_detailed_email = config.get('enable_detailed_email', True)
                 
                 logger.info(f"Loaded configuration from {self.config_file}")
             else:
@@ -86,7 +102,10 @@ class SchedulerConfig:
             'keywords': self.keywords,
             'use_openai': self.use_openai,
             'email_enabled': self.email_enabled,
-            'email_recipients': self.email_recipients
+            'email_recipients': self.email_recipients,
+            'enable_pinecone_storage': self.enable_pinecone_storage,
+            'enable_dual_sentiment': self.enable_dual_sentiment,
+            'enable_detailed_email': self.enable_detailed_email
         }
         
         try:
@@ -111,7 +130,8 @@ class NewsScheduler:
         self.config = SchedulerConfig(config_file)
         self.collector = NewsCollector()
         self.analyzer = RiskAnalyzer()
-        logger.info("NewsScheduler initialized")
+        self.pinecone_db = PineconeDB() if self.config.enable_pinecone_storage and PINECONE_AVAILABLE else None
+        logger.info("NewsScheduler initialized with enhanced automation features")
     
     def setup_logging(self):
         """Set up logging configuration"""
@@ -168,16 +188,53 @@ class NewsScheduler:
             logger.error(f"Error collecting news for {entity}: {e}")
             return []
     
-    def analyze_sentiment_with_openai(self, articles: List[Dict]) -> List[Dict]:
-        """Analyze sentiment of articles using OpenAI API (synchronous version)"""
-        # Run the async function in a synchronous context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(self.analyze_sentiment_with_openai_async(articles))
-        finally:
-            loop.close()
-            
+    async def analyze_sentiment_dual_async(self, articles: List[Dict]) -> List[Dict]:
+        """Analyze sentiment using both LLM and lexicon methods"""
+        logger.info(f"Performing dual sentiment analysis for {len(articles)} articles")
+        
+        # Create tasks for both LLM and lexicon analysis
+        llm_task = self.analyze_sentiment_with_openai_async(articles) if self.config.use_openai else None
+        lexicon_task = self.analyze_sentiment_with_lexicon_async(articles)
+        
+        # Run both analyses concurrently
+        tasks = [lexicon_task]
+        if llm_task:
+            tasks.append(llm_task)
+        
+        results = await asyncio.gather(*tasks)
+        
+        # Combine results
+        lexicon_results = results[0]
+        if len(results) > 1:
+            llm_results = results[1]
+            # Merge LLM results into lexicon results
+            for i, article in enumerate(lexicon_results):
+                if i < len(llm_results):
+                    article['llm_sentiment'] = llm_results[i].get('sentiment_analysis', {})
+                    article['sentiment_method'] = 'dual'
+                else:
+                    article['sentiment_method'] = 'lexicon_only'
+        else:
+            for article in lexicon_results:
+                article['sentiment_method'] = 'lexicon_only'
+        
+        return lexicon_results
+    
+    async def analyze_sentiment_with_lexicon_async(self, articles: List[Dict]) -> List[Dict]:
+        """Analyze sentiment using lexicon-based method asynchronously"""
+        logger.info(f"Analyzing sentiment for {len(articles)} articles using lexicon (async)")
+        
+        # Use thread pool for CPU-bound lexicon analysis
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            processed_articles = await loop.run_in_executor(
+                executor,
+                self._analyze_with_lexicon,
+                articles
+            )
+        
+        return processed_articles
+    
     async def analyze_sentiment_with_openai_async(self, articles: List[Dict]) -> List[Dict]:
         """Analyze sentiment of articles using OpenAI API asynchronously"""
         import openai
@@ -285,6 +342,56 @@ class NewsScheduler:
         
         return article
     
+    async def store_articles_in_pinecone_async(self, articles: List[Dict]) -> Dict[str, int]:
+        """Store articles in Pinecone database asynchronously"""
+        if not self.pinecone_db:
+            logger.warning("Pinecone storage not enabled")
+            return {'success_count': 0, 'error_count': 0, 'total_count': len(articles)}
+        
+        logger.info(f"Storing {len(articles)} articles in Pinecone database")
+        
+        # Use thread pool for database operations
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            result = await loop.run_in_executor(
+                executor,
+                self._store_articles_batch,
+                articles
+            )
+        
+        return result
+    
+    def _store_articles_batch(self, articles: List[Dict]) -> Dict[str, int]:
+        """Store articles in Pinecone database (helper method)"""
+        success_count = 0
+        error_count = 0
+        
+        for article in articles:
+            try:
+                # Create analysis result for storage
+                analysis_result = {
+                    'sentiment_analysis': article.get('sentiment_analysis', {}),
+                    'risk_analysis': article.get('risk_analysis', {}),
+                    'analysis_method': article.get('sentiment_method', 'unknown')
+                }
+                
+                if self.pinecone_db.store_article(article, analysis_result):
+                    success_count += 1
+                else:
+                    error_count += 1
+            except Exception as e:
+                logger.error(f"Error storing article in Pinecone: {e}")
+                error_count += 1
+        
+        result = {
+            'success_count': success_count,
+            'error_count': error_count,
+            'total_count': len(articles)
+        }
+        
+        logger.info(f"Pinecone storage complete: {success_count} successful, {error_count} errors")
+        return result
+    
     def run_daily_collection(self):
         """Run the daily news collection and analysis (synchronous wrapper)"""
         # Run the async function in a synchronous context
@@ -297,7 +404,7 @@ class NewsScheduler:
             
     async def run_daily_collection_async(self):
         """Run the daily news collection and analysis asynchronously"""
-        logger.info("Starting daily news collection (async)")
+        logger.info("Starting enhanced daily news collection (async)")
         
         # Check if we have entities to monitor
         if not self.config.entities:
@@ -341,21 +448,54 @@ class NewsScheduler:
             all_articles = filtered_articles
             logger.info(f"Filtered articles from {original_count} to {len(all_articles)} using keywords")
         
-        # Analyze sentiment
-        if self.config.use_openai:
+        # Perform dual sentiment analysis
+        if self.config.enable_dual_sentiment:
+            all_articles = await self.analyze_sentiment_dual_async(all_articles)
+        elif self.config.use_openai:
             all_articles = await self.analyze_sentiment_with_openai_async(all_articles)
         else:
             # Use built-in lexicon-based sentiment analysis
-            # This can also be done asynchronously using a thread pool
+            all_articles = await self.analyze_sentiment_with_lexicon_async(all_articles)
+        
+        # Run risk analysis
+        try:
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor() as executor:
-                all_articles = await loop.run_in_executor(
+                analysis = await loop.run_in_executor(
                     executor,
-                    self._analyze_with_lexicon,
+                    self.analyzer.analyze_articles,
                     all_articles
                 )
+            
+            # Add risk analysis to articles
+            # Create a mapping from URL to analysis for easy lookup
+            article_analysis_mapping = {}
+            for article_analysis in analysis.get('article_analysis', []):
+                url = article_analysis.get('url', '')
+                if url:
+                    article_analysis_mapping[url] = article_analysis
+            
+            # Add risk analysis to each article
+            for article in all_articles:
+                url = article.get('url', '')
+                if url in article_analysis_mapping:
+                    article['risk_analysis'] = article_analysis_mapping[url]
+                else:
+                    article['risk_analysis'] = {}
+            
+            logger.info("Risk analysis completed")
+        except Exception as e:
+            logger.error(f"Error in risk analysis: {e}")
+            # Add empty risk analysis to articles if analysis fails
+            for article in all_articles:
+                article['risk_analysis'] = {}
         
-        # Save articles
+        # Store articles in Pinecone database
+        if self.config.enable_pinecone_storage:
+            storage_result = await self.store_articles_in_pinecone_async(all_articles)
+            logger.info(f"Pinecone storage: {storage_result['success_count']}/{storage_result['total_count']} articles stored")
+        
+        # Save articles to local files
         if all_articles:
             # Save to output directory
             output_dir = self.config.config.OUTPUT_DIR
@@ -377,54 +517,46 @@ class NewsScheduler:
             
             logger.info(f"Saved {len(all_articles)} articles to {filepath}")
             
-            # Run risk analysis (using a thread pool)
+            # Save analysis to file
+            analysis_filename = f"scheduled_analysis_{timestamp}.json"
+            analysis_filepath = os.path.join(output_dir, analysis_filename)
+            
+            with ThreadPoolExecutor() as executor:
+                await loop.run_in_executor(
+                    executor,
+                    self._save_json_to_file,
+                    analysis,
+                    analysis_filepath
+                )
+            
+            logger.info(f"Saved risk analysis to {analysis_filepath}")
+
+            # Enhanced Email reporting
             try:
-                loop = asyncio.get_event_loop()
-                with ThreadPoolExecutor() as executor:
-                    analysis = await loop.run_in_executor(
-                        executor,
-                        self.analyzer.analyze_articles,
-                        all_articles
-                    )
-                
-                # Save analysis to file
-                analysis_filename = f"scheduled_analysis_{timestamp}.json"
-                analysis_filepath = os.path.join(output_dir, analysis_filename)
-                
-                with ThreadPoolExecutor() as executor:
-                    await loop.run_in_executor(
-                        executor,
-                        self._save_json_to_file,
-                        analysis,
-                        analysis_filepath
-                    )
-                
-                logger.info(f"Saved risk analysis to {analysis_filepath}")
+                if self.config.email_enabled:
+                    # Prepare summary
+                    summary = analysis.get('summary', {})
+                    
+                    # Identify top 10 most negative articles overall (by sentiment score ascending)
+                    articles_with_sentiment = [a for a in all_articles if a.get('sentiment_analysis')]
+                    top_negative = sorted(
+                        articles_with_sentiment,
+                        key=lambda a: a.get('sentiment_analysis', {}).get('score', 0)
+                    )[:10]
 
-                # Email reporting
-                try:
-                    if self.config.email_enabled:
-                        # Prepare summary
-                        summary = analysis.get('summary', {})
-                        # Identify top 10 most negative articles overall (by sentiment score ascending)
-                        # If LLM/lexicon stored in each article under 'sentiment_analysis'
-                        articles_with_sentiment = [a for a in all_articles if a.get('sentiment_analysis')]
-                        top_negative = sorted(
-                            articles_with_sentiment,
-                            key=lambda a: a.get('sentiment_analysis', {}).get('score', 0)
-                        )[:10]
-
+                    if self.config.enable_detailed_email:
+                        html = format_detailed_email_html(summary, top_negative, all_articles)
+                    else:
                         html = format_daily_summary_html(summary, top_negative)
-                        send_html_email(
-                            subject=f"Daily Summary {timestamp}",
-                            html_body=html,
-                            recipients=self.config.email_recipients or Config.get_email_recipients(),
-                        )
-                        logger.info("Daily summary email sent")
-                except Exception as e:
-                    logger.error(f"Failed to send daily email: {e}")
+                    
+                    send_html_email(
+                        subject=f"Daily Risk Monitor Summary {timestamp}",
+                        html_body=html,
+                        recipients=self.config.email_recipients or Config.get_email_recipients(),
+                    )
+                    logger.info("Enhanced daily summary email sent")
             except Exception as e:
-                logger.error(f"Error analyzing articles: {e}")
+                logger.error(f"Failed to send daily email: {e}")
         else:
             logger.warning("No articles collected")
             
@@ -474,7 +606,7 @@ class NewsScheduler:
         
         # Schedule the job
         schedule.every().day.at(run_time).do(self.run_daily_collection)
-        logger.info(f"Scheduled daily news collection at {run_time} {self.config.timezone}")
+        logger.info(f"Scheduled enhanced daily news collection at {run_time} {self.config.timezone}")
         
         # Run the scheduler
         while True:
@@ -483,5 +615,5 @@ class NewsScheduler:
     
     def run_now(self):
         """Run the news collection immediately"""
-        logger.info("Running news collection immediately")
+        logger.info("Running enhanced news collection immediately")
         self.run_daily_collection()

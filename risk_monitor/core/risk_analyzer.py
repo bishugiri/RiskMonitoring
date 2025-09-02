@@ -14,7 +14,15 @@ from urllib.parse import urlparse
 
 from risk_monitor.config.settings import Config
 from risk_monitor.utils.sentiment import analyze_sentiment_sync
-from risk_monitor.utils.pinecone_db import PineconeDB
+
+# Try to import PineconeDB, but handle gracefully if not available
+try:
+    from risk_monitor.utils.pinecone_db import PineconeDB
+    PINECONE_AVAILABLE = True
+except ImportError:
+    PINECONE_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("PineconeDB not available - Pinecone storage will be disabled")
 
 class RiskAnalyzer:
     """Analyzes news articles for potential risks and market sentiment"""

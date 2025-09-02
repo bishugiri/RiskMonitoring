@@ -3,7 +3,7 @@ Pinecone Database Integration for Risk Monitor
 Stores article analysis results with OpenAI embeddings and comprehensive metadata
 """
 
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone
 import openai
 import json
 import logging
@@ -55,8 +55,7 @@ class PineconeDB:
                     self.pc.create_index(
                         name=self.index_name,
                         dimension=self.dimension,
-                        metric="cosine",
-                        spec=ServerlessSpec(cloud="aws", region="us-east-1")
+                        metric="cosine"
                     )
                     return self.pc.Index(self.index_name)
                 except Exception as create_error:
@@ -72,7 +71,10 @@ class PineconeDB:
     def generate_embedding(self, text: str) -> List[float]:
         """Generate OpenAI embedding for text"""
         try:
-            response = openai.Embedding.create(
+            from openai import OpenAI
+            client = OpenAI(api_key=self.openai_api_key)
+            
+            response = client.embeddings.create(
                 model="text-embedding-3-large",
                 input=text,
                 dimensions=self.dimension
