@@ -94,6 +94,30 @@ def load_custom_css():
         opacity: 0;
         animation: fadeInUp 0.5s ease-in-out forwards;
     }
+    
+    /* Hide default Streamlit footer */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Sticky footer styling */
+    .sticky-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: #f8f9fa;
+        border-top: 1px solid #dee2e6;
+        padding: 0.75rem 0;
+        text-align: center;
+        z-index: 1000;
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Add bottom margin to main content to prevent overlap with sticky footer */
+    .main .block-container {
+        padding-bottom: 4rem !important;
+    }
     .custom-container:hover, .article-card:hover {
         box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
         transform: translateY(-5px);
@@ -355,6 +379,101 @@ def filter_articles_by_keywords(articles: List[Dict], keywords: str) -> List[Dic
             filtered_articles.append(article)
     return filtered_articles
 
+# --- Scheduler Configuration Functions ---
+def load_scheduler_config():
+    """Load scheduler configuration from JSON file."""
+    config_file = "scheduler_config.json"
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            st.error(f"Error loading scheduler config: {e}")
+    
+    # Return default configuration
+    return {
+        "run_time": "08:00",
+        "timezone": "US/Eastern", 
+        "articles_per_entity": 5,
+        "entities": ["NVDA", "NVIDIA CORPORATION", "MSFT", "MICROSOFT CORP", "AAPL", "APPLE INC.", "AVGO", "BROADCOM INC.", "META", "META PLATFORMS INC", "AMZN", "AMAZON.COM INC"],
+        "keywords": ["risk", "financial", "market", "crisis", "volatility", "earnings", "revenue", "stock", "trading", "investment"],
+        "use_openai": True,
+        "email_enabled": True,
+        "email_recipients": ["be2020se709@gces.edu.np"],
+        "enable_pinecone_storage": True,
+        "enable_dual_sentiment": True,
+        "enable_detailed_email": True
+    }
+
+def save_scheduler_config(config):
+    """Save scheduler configuration to JSON file."""
+    config_file = "scheduler_config.json"
+    try:
+        with open(config_file, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=4)
+        return True, "Configuration saved successfully!"
+    except Exception as e:
+        return False, f"Error saving configuration: {e}"
+
+def update_email_subscription(enabled: bool):
+    """Update email subscription status."""
+    try:
+        config = load_scheduler_config()
+        config["email_enabled"] = enabled
+        success, message = save_scheduler_config(config)
+        if success:
+            status = "enabled" if enabled else "disabled"
+            return True, f"Email subscription {status} successfully!"
+        return False, message
+    except Exception as e:
+        return False, f"Error updating email subscription: {e}"
+
+def get_scheduler_status():
+    """Check if scheduler is currently running."""
+    try:
+        import subprocess
+        import os
+        from datetime import datetime
+        
+        # Check for run_data_refresh.py processes
+        result = subprocess.run(['pgrep', '-f', 'run_data_refresh.py'], capture_output=True, text=True)
+        is_running = result.returncode == 0 and result.stdout.strip()
+        process_ids = result.stdout.strip().split('\n') if is_running else []
+        
+        # Get additional status information
+        status_info = {
+            'is_running': is_running,
+            'process_ids': process_ids,
+            'last_run': None,
+            'next_run': None,
+            'log_file_exists': os.path.exists('logs/scheduler.log'),
+            'background_log_exists': os.path.exists('scheduler_background.log')
+        }
+        
+        # Check last run time from log file
+        if status_info['log_file_exists']:
+            try:
+                with open('logs/scheduler.log', 'r') as f:
+                    lines = f.readlines()
+                    if lines:
+                        # Look for the last "Starting daily news collection" entry
+                        for line in reversed(lines):
+                            if "Starting daily news collection" in line:
+                                # Extract timestamp from log line
+                                timestamp_str = line.split(' - ')[0]
+                                try:
+                                    last_run = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
+                                    status_info['last_run'] = last_run
+                                    break
+                                except:
+                                    pass
+            except:
+                pass
+        
+        return is_running, process_ids, status_info
+    except Exception:
+        return False, [], {}
+
 # --- UI/UX Components ---
 def display_dashboard_header():
     """Displays the main dashboard header with title and subtitle."""
@@ -420,6 +539,10 @@ def navigation_sidebar():
 
     if st.sidebar.button("🤖 RAG Chat", key="nav_rag", use_container_width=True, type="primary" if st.session_state.current_page == "rag_chat" else "secondary"):
         st.session_state.current_page = "rag_chat"
+        st.rerun()
+
+    if st.sidebar.button("⏰ Scheduler Config", key="nav_scheduler", use_container_width=True, type="primary" if st.session_state.current_page == "scheduler_config" else "secondary"):
+        st.session_state.current_page = "scheduler_config"
         st.rerun()
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
@@ -1014,6 +1137,472 @@ def main():
             st.error("❌ RAG service not available. Please ensure all dependencies are installed.")
         except Exception as e:
             st.error(f"❌ Error initializing RAG service: {str(e)}")
+
+    # --- Scheduler Configuration View ---
+    elif st.session_state.current_page == "scheduler_config":
+        st.markdown('<div class="custom-container"><h2 style="margin: 0;">⏰ Scheduler Configuration</h2><p style="margin: 0.25rem 0 0; color: #4b5563;">Configure automated news collection and analysis scheduling.</p></div>', unsafe_allow_html=True)
+        
+        # Load current configuration
+        config = load_scheduler_config()
+        
+        # Create tabs for different configuration sections
+        schedule_tab, entities_tab, analysis_tab, email_tab, monitoring_tab = st.tabs(["⏰ Schedule", "🏢 Companies", "🔍 Analysis", "📧 Email", "📊 Monitoring"])
+        
+        with schedule_tab:
+            st.subheader("Daily Schedule Settings")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                run_time = st.time_input(
+                    "Daily Run Time",
+                    value=datetime.strptime(config.get("run_time", "08:00"), "%H:%M").time(),
+                    help="Time when the scheduler will run daily"
+                )
+                config["run_time"] = run_time.strftime("%H:%M")
+            
+            with col2:
+                timezone_options = [
+                    "US/Eastern", "US/Central", "US/Mountain", "US/Pacific",
+                    "Europe/London", "Europe/Paris", "Asia/Tokyo", "Asia/Shanghai",
+                    "UTC"
+                ]
+                timezone = st.selectbox(
+                    "Timezone",
+                    options=timezone_options,
+                    index=timezone_options.index(config.get("timezone", "US/Eastern")) if config.get("timezone") in timezone_options else 0,
+                    help="Timezone for the scheduled run"
+                )
+                config["timezone"] = timezone
+            
+            articles_per_entity = st.number_input(
+                "Articles per Company",
+                min_value=1,
+                max_value=20,
+                value=config.get("articles_per_entity", 5),
+                help="Number of articles to collect per company"
+            )
+            config["articles_per_entity"] = articles_per_entity
+            
+        with entities_tab:
+            st.subheader("Companies to Monitor")
+            st.markdown("Configure which companies the scheduler should monitor for news.")
+            
+            # Default entities
+            default_entities = ["NVDA", "NVIDIA CORPORATION", "MSFT", "MICROSOFT CORP", "AAPL", "APPLE INC.", "AVGO", "BROADCOM INC.", "META", "META PLATFORMS INC", "AMZN", "AMAZON.COM INC"]
+            
+            # Initialize session state for companies input if not exists
+            if "companies_input" not in st.session_state:
+                st.session_state.companies_input = "\n".join(config.get("entities", default_entities))
+            
+            entities_input = st.text_area(
+                "Companies (one per line)",
+                value=st.session_state.companies_input,
+                    height=200,
+                help="Enter company names or stock symbols, one per line",
+                key="companies_textarea"
+            )
+            config["entities"] = [e.strip() for e in entities_input.split("\n") if e.strip()]
+            
+            st.info(f"Currently monitoring {len(config['entities'])} companies")
+            
+            # NASDAQ-100 companies dropdown
+            st.markdown("**Add Companies from NASDAQ-100:**")
+            
+            # NASDAQ-100 companies list (cleaned and deduplicated)
+            nasdaq_100_companies = [
+                ("AAPL", "Apple Inc"),
+                ("ADBE", "Adobe Inc"),
+                ("ADI", "Analog Devices Inc"),
+                ("ADP", "Automatic Data Processing Inc"),
+                ("ADSK", "Autodesk Inc"),
+                ("AEP", "American Electric Power Company Inc"),
+                ("ALGN", "Align Technology Inc"),
+                ("AMAT", "Applied Materials Inc"),
+                ("AMD", "Advanced Micro Devices Inc"),
+                ("AMGN", "Amgen Inc"),
+                ("AMZN", "Amazon.com Inc"),
+                ("ANSS", "ANSYS Inc"),
+                ("ASML", "ASML Holding NV"),
+                ("ATVI", "Activision Blizzard Inc"),
+                ("AVGO", "Broadcom Inc"),
+                ("AZN", "AstraZeneca PLC"),
+                ("BIIB", "Biogen Inc"),
+                ("BKNG", "Booking Holdings Inc"),
+                ("BKR", "Baker Hughes Company"),
+                ("CDNS", "Cadence Design Systems Inc"),
+                ("CEG", "Constellation Energy Corp"),
+                ("CHTR", "Charter Communications Inc"),
+                ("CMCSA", "Comcast Corporation"),
+                ("COST", "Costco Wholesale Corporation"),
+                ("CPRT", "Copart Inc"),
+                ("CRWD", "CrowdStrike Holdings Inc"),
+                ("CSCO", "Cisco Systems Inc"),
+                ("CSGP", "CoStar Group Inc"),
+                ("CTAS", "Cintas Corporation"),
+                ("CTSH", "Cognizant Technology Solutions Corp"),
+                ("DDOG", "Datadog Inc"),
+                ("DLTR", "Dollar Tree Inc"),
+                ("DXCM", "DexCom Inc"),
+                ("EA", "Electronic Arts Inc"),
+                ("EBAY", "eBay Inc"),
+                ("ENPH", "Enphase Energy Inc"),
+                ("EXC", "Exelon Corporation"),
+                ("FANG", "Diamondback Energy Inc"),
+                ("FAST", "Fastenal Company"),
+                ("FTNT", "Fortinet Inc"),
+                ("GILD", "Gilead Sciences Inc"),
+                ("GOOG", "Alphabet Inc Class C"),
+                ("GOOGL", "Alphabet Inc Class A"),
+                ("HON", "Honeywell International Inc"),
+                ("IDXX", "IDEXX Laboratories Inc"),
+                ("ILMN", "Illumina Inc"),
+                ("INTC", "Intel Corporation"),
+                ("INTU", "Intuit Inc"),
+                ("ISRG", "Intuitive Surgical Inc"),
+                ("JD", "JD.com Inc"),
+                ("KLAC", "KLA Corporation"),
+                ("LCID", "Lucid Group Inc"),
+                ("LRCX", "Lam Research Corporation"),
+                ("LULU", "Lululemon Athletica Inc"),
+                ("MAR", "Marriott International Inc"),
+                ("MCHP", "Microchip Technology Inc"),
+                ("MDLZ", "Mondelez International Inc"),
+                ("MELI", "MercadoLibre Inc"),
+                ("META", "Meta Platforms Inc"),
+                ("MNST", "Monster Beverage Corporation"),
+                ("MRVL", "Marvell Technology Inc"),
+                ("MSFT", "Microsoft Corporation"),
+                ("MU", "Micron Technology Inc"),
+                ("NFLX", "Netflix Inc"),
+                ("NVDA", "NVIDIA Corporation"),
+                ("NXPI", "NXP Semiconductors NV"),
+                ("ODFL", "Old Dominion Freight Line Inc"),
+                ("OKTA", "Okta Inc"),
+                ("ORCL", "Oracle Corporation"),
+                ("PANW", "Palo Alto Networks Inc"),
+                ("PAYX", "Paychex Inc"),
+                ("PCAR", "PACCAR Inc"),
+                ("PEP", "PepsiCo Inc"),
+                ("PLTR", "Palantir Technologies Inc"),
+                ("PYPL", "PayPal Holdings Inc"),
+                ("QCOM", "QUALCOMM Incorporated"),
+                ("REGN", "Regeneron Pharmaceuticals Inc"),
+                ("ROST", "Ross Stores Inc"),
+                ("SBUX", "Starbucks Corporation"),
+                ("SGEN", "Seagen Inc"),
+                ("SIRI", "Sirius XM Holdings Inc"),
+                ("SNPS", "Synopsys Inc"),
+                ("TEAM", "Atlassian Corporation"),
+                ("TMUS", "T-Mobile US Inc"),
+                ("TSLA", "Tesla Inc"),
+                ("TXN", "Texas Instruments Incorporated"),
+                ("VRTX", "Vertex Pharmaceuticals Inc"),
+                ("WBA", "Walgreens Boots Alliance Inc"),
+                ("WDAY", "Workday Inc"),
+                ("XEL", "Xcel Energy Inc"),
+                ("ZM", "Zoom Video Communications Inc"),
+                ("ZS", "Zscaler Inc")
+            ]
+            
+            # Remove duplicates and sort
+            unique_companies = []
+            seen_symbols = set()
+            for symbol, name in nasdaq_100_companies:
+                if symbol not in seen_symbols:
+                    unique_companies.append((symbol, name))
+                    seen_symbols.add(symbol)
+            
+            # Sort by symbol
+            unique_companies.sort(key=lambda x: x[0])
+            
+            # Create dropdown for NASDAQ-100 companies
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                # Create options for dropdown
+                dropdown_options = [f"{symbol} - {name}" for symbol, name in unique_companies]
+                selected_company = st.selectbox(
+                    "Select a NASDAQ-100 company to add:",
+                    options=["Select a company..."] + dropdown_options,
+                    help="Choose from the top 100 companies listed on NASDAQ"
+                )
+            
+            with col2:
+                if st.button("➕ Add Selected", type="primary", disabled=selected_company == "Select a company..."):
+                    if selected_company != "Select a company...":
+                        # Extract symbol from selected option
+                        symbol = selected_company.split(" - ")[0]
+                        if symbol not in config["entities"]:
+                            config["entities"].append(symbol)
+                            # Update the companies input field
+                            st.session_state.companies_input = "\n".join(config["entities"])
+                            st.success(f"✅ Added {symbol}")
+                            st.rerun()
+                        else:
+                            st.warning(f"⚠️ {symbol} is already in the list")
+        
+        with analysis_tab:
+            st.subheader("Analysis Configuration")
+            
+            # Keywords configuration
+            st.markdown("**Keyword Filtering**")
+            default_keywords = ["risk", "financial", "market", "crisis", "volatility", "earnings", "revenue", "stock", "trading", "investment"]
+            keywords_input = st.text_area(
+                "Keywords (one per line)",
+                value="\n".join(config.get("keywords", default_keywords)),
+                height=150,
+                help="Only articles containing these keywords will be analyzed"
+            )
+            config["keywords"] = [k.strip() for k in keywords_input.split("\n") if k.strip()]
+            
+            st.markdown("**Analysis Options**")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                use_openai = st.checkbox(
+                    "Enable OpenAI LLM Analysis",
+                    value=config.get("use_openai", True),
+                    help="Use OpenAI for advanced sentiment analysis"
+                )
+                config["use_openai"] = use_openai
+            
+                enable_dual_sentiment = st.checkbox(
+                    "Enable Dual Sentiment Analysis",
+                    value=config.get("enable_dual_sentiment", True),
+                    help="Perform both lexicon and LLM sentiment analysis"
+                )
+                config["enable_dual_sentiment"] = enable_dual_sentiment
+            
+            with col2:
+                enable_pinecone_storage = st.checkbox(
+                    "Enable Pinecone Vector Storage",
+                    value=config.get("enable_pinecone_storage", True),
+                    help="Store articles in Pinecone vector database"
+                )
+                config["enable_pinecone_storage"] = enable_pinecone_storage
+        
+        with email_tab:
+            st.subheader("Email Notification Settings")
+            
+            email_enabled = st.checkbox(
+                "Enable Email Notifications",
+                value=config.get("email_enabled", True),
+                help="Send daily email reports"
+            )
+            config["email_enabled"] = email_enabled
+            
+            if email_enabled:
+                enable_detailed_email = st.checkbox(
+                    "Enable Detailed Email Reports",
+                    value=config.get("enable_detailed_email", True),
+                    help="Include detailed analysis and article summaries in emails"
+                )
+                config["enable_detailed_email"] = enable_detailed_email
+                
+                # Email recipients
+                recipients_input = st.text_area(
+                    "Email Recipients (one per line)",
+                    value="\n".join(config.get("email_recipients", ["be2020se709@gces.edu.np"])),
+                    height=100,
+                    help="Email addresses to receive daily reports"
+                )
+                config["email_recipients"] = [r.strip() for r in recipients_input.split("\n") if r.strip()]
+                
+                # Email configuration status
+                st.markdown("**Email Configuration Status:**")
+                try:
+                    smtp_host = Config.get_smtp_host()
+                    smtp_user = Config.get_smtp_user()
+                    email_from = Config.get_email_from()
+                    
+                    if smtp_host and smtp_user and email_from:
+                        st.success(f"✅ Email configured: {email_from} via {smtp_host}")
+                    else:
+                        st.warning("⚠️ Email not fully configured. Check .streamlit/secrets.toml")
+                except Exception as e:
+                    st.error(f"❌ Email configuration error: {e}")
+        
+        with monitoring_tab:
+            st.subheader("Scheduler Status & Monitoring")
+            
+            # Check scheduler status
+            is_running, process_ids, status_info = get_scheduler_status()
+            
+            # Display detailed scheduler status
+            st.markdown("**📊 Scheduler Status:**")
+            
+            # Real-time status indicator
+            if is_running:
+                st.markdown("""
+                <div style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; padding: 1rem; margin: 1rem 0;">
+                    <h3 style="color: #155724; margin: 0;">🟢 SCHEDULER ACTIVE</h3>
+                    <p style="color: #155724; margin: 0.5rem 0 0;">The scheduler is currently running in the background and monitoring your configured companies.</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 1rem; margin: 1rem 0;">
+                    <h3 style="color: #721c24; margin: 0;">🔴 SCHEDULER INACTIVE</h3>
+                    <p style="color: #721c24; margin: 0.5rem 0 0;">The scheduler is not running. Use the commands below to start it.</p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if is_running:
+                    st.success(f"✅ **ACTIVE** - Scheduler is running")
+                    st.info(f"**Process IDs:** {', '.join(process_ids)}")
+                else:
+                    st.error("❌ **INACTIVE** - Scheduler is not running")
+                    st.warning("No background scheduler process detected")
+            
+            with col2:
+                if st.button("🔄 Refresh Status", type="secondary"):
+                    st.rerun()
+            
+            # Additional status information
+            st.markdown("**📋 Status Details:**")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                # Last run information
+                if status_info.get('last_run'):
+                    last_run = status_info['last_run']
+                    st.metric(
+                        label="Last Run",
+                        value=last_run.strftime("%H:%M"),
+                        delta=f"{last_run.strftime('%Y-%m-%d')}"
+                    )
+                else:
+                    st.metric(label="Last Run", value="Unknown")
+            
+            with col2:
+                # Log file status
+                log_status = "✅ Available" if status_info.get('log_file_exists') else "❌ Missing"
+                st.metric(label="Log File", value=log_status)
+            
+            with col3:
+                # Background log status
+                bg_log_status = "✅ Available" if status_info.get('background_log_exists') else "❌ Missing"
+                st.metric(label="Background Log", value=bg_log_status)
+        
+            with col2:
+                if st.button("Refresh Status", type="secondary"):
+                    st.rerun()
+            
+            # Email subscription controls
+            st.markdown("**Email Subscription Controls:**")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("📧 Subscribe to Email Reports", type="primary"):
+                    success, message = update_email_subscription(True)
+                    if success:
+                        st.success("✅ Email subscription enabled! You will receive daily reports.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error enabling email: {message}")
+            
+            with col2:
+                if st.button("📧 Unsubscribe from Email Reports", type="secondary"):
+                    success, message = update_email_subscription(False)
+                    if success:
+                        st.success("✅ Email subscription disabled! Daily news collection and analysis will continue.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Error disabling email: {message}")
+            
+            # Current email status
+            email_status = "🟢 Enabled" if config.get("email_enabled", False) else "🔴 Disabled"
+            st.info(f"**Current Email Status:** {email_status}")
+            
+            # Scheduler control information
+            st.markdown("**Scheduler Controls:**")
+            st.info("""
+            **To start the scheduler:** `nohup ./run_scheduler_with_email.sh > scheduler_background.log 2>&1 &`
+            
+            **To stop the scheduler:** `pkill -f "run_data_refresh.py"`
+            
+            **To run immediately:** `./run_scheduler_with_email.sh --run-now`
+            
+            **Note:** Daily news collection and analysis will continue regardless of email subscription status.
+            """)
+            
+            # Log monitoring
+            st.markdown("**Recent Logs:**")
+            log_files = ["logs/scheduler.log", "scheduler_background.log"]
+            
+            for log_file in log_files:
+                if os.path.exists(log_file):
+                    try:
+                        with open(log_file, 'r') as f:
+                            lines = f.readlines()
+                            recent_lines = lines[-10:] if len(lines) > 10 else lines
+                        
+                        with st.expander(f"📄 {log_file} (last 10 lines)"):
+                            st.code("".join(recent_lines), language="text")
+                    except Exception as e:
+                        st.warning(f"Could not read {log_file}: {e}")
+        
+        # Save configuration section
+        st.markdown("---")
+        st.subheader("💾 Save Configuration")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            st.info("Click 'Save Configuration' to apply your changes to the scheduler.")
+        
+        with col2:
+            if st.button("💾 Save Configuration", type="primary"):
+                success, message = save_scheduler_config(config)
+                if success:
+                    st.success(message)
+                    st.balloons()
+                else:
+                    st.error(message)
+        
+        with col3:
+            if st.button("🔄 Reset to Defaults", type="secondary"):
+                # Reset to default configuration
+                default_config = {
+                    "run_time": "08:00",
+                    "timezone": "US/Eastern",
+                    "articles_per_entity": 5,
+                    "entities": ["NVDA", "NVIDIA CORPORATION", "MSFT", "MICROSOFT CORP", "AAPL", "APPLE INC.", "AVGO", "BROADCOM INC.", "META", "META PLATFORMS INC", "AMZN", "AMAZON.COM INC"],
+                    "keywords": ["risk", "financial", "market", "crisis", "volatility", "earnings", "revenue", "stock", "trading", "investment"],
+                    "use_openai": True,
+                    "email_enabled": True,
+                    "email_recipients": ["be2020se709@gces.edu.np"],
+                    "enable_pinecone_storage": True,
+                    "enable_dual_sentiment": True,
+                    "enable_detailed_email": True
+                }
+                success, message = save_scheduler_config(default_config)
+                if success:
+                    st.success("Configuration reset to defaults!")
+                    st.rerun()
+                else:
+                    st.error(f"Error resetting configuration: {message}")
+        
+        # Configuration preview
+        st.markdown("---")
+        st.subheader("📋 Configuration Preview")
+        with st.expander("View Current Configuration JSON", expanded=False):
+            st.json(config)
+    
+    # Copyright footer - sticky at bottom
+    st.markdown("""
+    <div class="sticky-footer">
+        <p style="margin: 0; color: #6c757d; font-size: 0.9rem;">
+            © 2024 Er. Bibit Kunwar Chhetri. All rights reserved.
+        </p>
+        <p style="margin: 0.25rem 0 0; color: #adb5bd; font-size: 0.8rem;">
+            Financial Risk Monitoring System
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # Entry point of the script
 if __name__ == "__main__":

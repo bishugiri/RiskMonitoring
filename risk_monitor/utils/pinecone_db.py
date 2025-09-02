@@ -34,8 +34,8 @@ class PineconeDB:
         # Initialize Pinecone with new API
         self.pc = Pinecone(api_key=self.pinecone_api_key)
         
-        # Initialize OpenAI with legacy API to avoid httpx issues
-        openai.api_key = self.openai_api_key
+        # Initialize OpenAI API key (not needed for new API, but keeping for compatibility)
+        self.openai_api_key = self.openai_api_key
         
         # Get or create index
         self.index = self._get_or_create_index()

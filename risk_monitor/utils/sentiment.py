@@ -72,7 +72,7 @@ async def analyze_sentiment_llm(text: str, openai_api_key: str) -> Dict:
     Analyze sentiment using OpenAI GPT-4o
     Returns: {'score': float, 'category': str, 'justification': str}
     """
-    import openai
+    from openai import OpenAI
     import re
     import json
     
@@ -80,7 +80,7 @@ async def analyze_sentiment_llm(text: str, openai_api_key: str) -> Dict:
         return {'score': 0.0, 'category': 'Neutral', 'justification': 'No text provided'}
     
     try:
-        openai.api_key = openai_api_key
+        client = OpenAI(api_key=openai_api_key)
         prompt = f"""
         You are a financial news sentiment analysis assistant. Analyze the sentiment of the following financial news article text. 
         Provide your analysis in JSON format with the following structure:
@@ -99,7 +99,7 @@ async def analyze_sentiment_llm(text: str, openai_api_key: str) -> Dict:
         - Overall market outlook
         """
         
-        response = openai.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=300,

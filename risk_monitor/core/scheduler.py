@@ -237,10 +237,10 @@ class NewsScheduler:
     
     async def analyze_sentiment_with_openai_async(self, articles: List[Dict]) -> List[Dict]:
         """Analyze sentiment of articles using OpenAI API asynchronously"""
-        import openai
+        from openai import OpenAI
         
         # Get OpenAI API key from config
-        openai.api_key = Config.get_openai_api_key()
+        client = OpenAI(api_key=Config.get_openai_api_key())
         
         logger.info(f"Analyzing sentiment for {len(articles)} articles using OpenAI (async)")
         
@@ -249,7 +249,7 @@ class NewsScheduler:
         
         # Create a task for each article
         for i, article in enumerate(articles):
-            task = asyncio.create_task(self._analyze_article_sentiment(article, i, len(articles)))
+            task = asyncio.create_task(self._analyze_article_sentiment(article, i, len(articles), client))
             tasks.append(task)
         
         # Process all articles concurrently (with rate limiting)
@@ -258,9 +258,8 @@ class NewsScheduler:
         # Return the processed articles
         return processed_articles
         
-    async def _analyze_article_sentiment(self, article: Dict, index: int, total: int) -> Dict:
+    async def _analyze_article_sentiment(self, article: Dict, index: int, total: int, client: OpenAI) -> Dict:
         """Analyze sentiment for a single article asynchronously"""
-        import openai
         
         try:
             # Combine title and text for analysis
@@ -295,7 +294,7 @@ class NewsScheduler:
             with ThreadPoolExecutor() as executor:
                 response = await loop.run_in_executor(
                     executor,
-                    lambda: openai.chat.completions.create(
+                    lambda: client.chat.completions.create(
                         model="gpt-4o",
                         messages=[{"role": "user", "content": prompt}],
                         max_tokens=300,

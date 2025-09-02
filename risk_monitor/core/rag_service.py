@@ -7,7 +7,7 @@ import logging
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import openai
+from openai import OpenAI
 from risk_monitor.utils.pinecone_db import PineconeDB
 from risk_monitor.config.settings import Config
 
@@ -19,8 +19,8 @@ class RAGService:
     def __init__(self):
         self.config = Config()
         self.pinecone_db = PineconeDB()
-        # Use legacy OpenAI API
-        openai.api_key = self.config.get_openai_api_key()
+        # Use new OpenAI API
+        self.client = OpenAI(api_key=self.config.get_openai_api_key())
         
     def search_articles(self, query: str, top_k: int = 50) -> List[Dict]:
         """Search for relevant articles in Pinecone database - fetch all relevant articles"""
@@ -176,8 +176,8 @@ Make sure to:
 - Cover all viewpoints and sentiment categories found
 - Provide analysis that reflects the complete dataset"""
 
-            # Generate response using OpenAI (legacy API)
-            response = openai.ChatCompletion.create(
+            # Generate response using OpenAI (new API)
+            response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": system_prompt},
