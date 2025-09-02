@@ -231,6 +231,34 @@ def load_custom_css():
         from { opacity: 0; transform: translateY(20px); }
         to { opacity: 1; transform: translateY(0); }
     }
+    
+    /* Smooth page transitions */
+    .main .block-container {
+        transition: all 0.3s ease-in-out;
+    }
+    
+    /* Chat interface styling */
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 200px);
+        min-height: 500px;
+    }
+    
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding-bottom: 20px;
+    }
+    
+    .chat-input-container {
+        position: sticky;
+        bottom: 80px;
+        background: white;
+        padding: 20px 0;
+        border-top: 1px solid #e5e7eb;
+        z-index: 100;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -537,7 +565,7 @@ def navigation_sidebar():
         st.session_state.current_page = "pdf_analysis"
         st.rerun()
 
-    if st.sidebar.button("🤖 RAG Chat", key="nav_rag", use_container_width=True, type="primary" if st.session_state.current_page == "rag_chat" else "secondary"):
+    if st.sidebar.button("🤖 AI Financial Assistant", key="nav_rag", use_container_width=True, type="primary" if st.session_state.current_page == "rag_chat" else "secondary"):
         st.session_state.current_page = "rag_chat"
         st.rerun()
 
@@ -950,9 +978,9 @@ def main():
             else:
                 st.warning("No relevant content was found in the PDF after filtering.")
 
-    # --- RAG Chat View ---
+    # --- AI Financial Assistant View ---
     elif st.session_state.current_page == "rag_chat":
-        st.title("🏦 Financial Data AI Agent Chat")
+        st.title("🤖 AI Financial Assistant")
         st.markdown("Chat with AI about your stored financial data and get insights.")
         
         # Initialize RAG service
@@ -978,6 +1006,12 @@ def main():
             if 'chat_history' not in st.session_state:
                 st.session_state.chat_history = []
             
+            # Create chat container with proper layout
+            st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+            
+            # Chat messages area
+            st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
+            
             # Render chat history using Streamlit's native chat_message (inspired by banking AI)
             for chat in st.session_state.chat_history:
                 with st.chat_message(chat["role"]):
@@ -990,8 +1024,23 @@ def main():
                     else:
                         st.markdown(chat["content"])
             
-            # Chat input using Streamlit's native chat_input (inspired by banking AI)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Chat input container positioned above footer
+            st.markdown('<div class="chat-input-container">', unsafe_allow_html=True)
             user_query = st.chat_input("Ask about companies, market sentiment, risks, or financial insights...")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Clear chat button (outside chat container)
+            if st.session_state.chat_history:
+                st.markdown("---")
+                col1, col2 = st.columns([1, 4])
+                with col1:
+                    if st.button("Clear", type="secondary"):
+                        st.session_state.chat_history = []
+                        st.rerun()
             
             if user_query:
                 # Display user message immediately (like banking AI)
@@ -1047,15 +1096,6 @@ def main():
                         })
                         
                         st.markdown(response['response'])
-            
-            # Clear chat button
-            if st.session_state.chat_history:
-                st.markdown("---")
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    if st.button("Clear", type="secondary"):
-                        st.session_state.chat_history = []
-                        st.rerun()
             
             # Show recent articles used with detailed metadata
             if st.session_state.chat_history and st.session_state.chat_history[-1]['role'] == 'assistant':
@@ -1447,18 +1487,18 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
             
-            col1, col2 = st.columns(2)
-            with col1:
-                if is_running:
-                    st.success(f"✅ **ACTIVE** - Scheduler is running")
-                    st.info(f"**Process IDs:** {', '.join(process_ids)}")
-                else:
-                    st.error("❌ **INACTIVE** - Scheduler is not running")
-                    st.warning("No background scheduler process detected")
-            
-            with col2:
-                if st.button("🔄 Refresh Status", type="secondary"):
-                    st.rerun()
+                col1, col2 = st.columns(2)
+                with col1:
+                    if is_running:
+                        st.success(f"✅ **ACTIVE** - Scheduler is running")
+                        st.info(f"**Process IDs:** {', '.join(process_ids)}")
+                    else:
+                        st.error("❌ **INACTIVE** - Scheduler is not running")
+                        st.warning("No background scheduler process detected")
+                
+                with col2:
+                    if st.button("🔄 Refresh Status", type="secondary"):
+                        st.rerun()
             
             # Additional status information
             st.markdown("**📋 Status Details:**")
