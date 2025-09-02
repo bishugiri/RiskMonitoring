@@ -1337,9 +1337,9 @@ def main():
                             # Update the companies input field
                             st.session_state.companies_input = "\n".join(config["entities"])
                             st.success(f"✅ Added {symbol}")
-                    st.rerun()
-                else:
-                    st.warning(f"⚠️ {symbol} is already in the list")
+                            st.rerun()
+                        else:
+                            st.warning(f"⚠️ {symbol} is already in the list")
         
         with analysis_tab:
             st.subheader("Analysis Configuration")
