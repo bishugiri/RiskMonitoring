@@ -289,7 +289,8 @@ def analyze_sentiment_sync(text: str, method: str = 'lexicon') -> Dict:
 
 # --- Streamlit Session State & Helper Functions ---
 def initialize_session_state():
-    """Initializes a new session state with default values."""
+    """Initializes a new session state with default values and preserves interface state across navigation."""
+    # Core application state
     if 'articles' not in st.session_state: st.session_state.articles = []
     if 'counterparties' not in st.session_state: st.session_state.counterparties = []
     if 'keywords' not in st.session_state: st.session_state.keywords = ""
@@ -300,6 +301,154 @@ def initialize_session_state():
     if 'analyze_pdf_trigger' not in st.session_state: st.session_state.analyze_pdf_trigger = False
     if 'sentiment_method' not in st.session_state: st.session_state.sentiment_method = "lexicon"
     if 'last_run_metadata' not in st.session_state: st.session_state.last_run_metadata = {}
+    
+    # Interface state preservation
+    if 'news_analysis_state' not in st.session_state: 
+        st.session_state.news_analysis_state = {
+            'search_mode': 'Counterparty-based',
+            'custom_query': '',
+            'num_articles': 5,
+            'selected_tab': 'Search'
+        }
+    
+    if 'pdf_analysis_state' not in st.session_state:
+        st.session_state.pdf_analysis_state = {
+            'uploaded_file': None,
+            'pdf_keywords': '',
+            'pdf_sentiment_method': 'Lexicon Based',
+            'auto_save_pdf': True,
+            'selected_tab': 'Upload PDF'
+        }
+    
+    if 'scheduler_config_state' not in st.session_state:
+        st.session_state.scheduler_config_state = {
+            'selected_tab': 'Schedule',
+            'companies_input': '',
+            'nasdaq_selection': 'Select a company...'
+        }
+    
+    if 'rag_chat_state' not in st.session_state:
+        st.session_state.rag_chat_state = {
+            'chat_history': [],
+            'last_query': '',
+            'articles_used': 0
+        }
+    
+    # Preserve form inputs across navigation
+    if 'form_inputs' not in st.session_state:
+        st.session_state.form_inputs = {}
+    
+    # Preserve expander states
+    if 'expander_states' not in st.session_state:
+        st.session_state.expander_states = {}
+    
+    # Preserve metric states
+    if 'metric_states' not in st.session_state:
+        st.session_state.metric_states = {}
+
+def save_interface_state(page: str, state_data: dict):
+    """Saves the current interface state for a specific page."""
+    st.session_state[f'{page}_state'] = state_data
+
+def restore_interface_state(page: str) -> dict:
+    """Restores the interface state for a specific page."""
+    return st.session_state.get(f'{page}_state', {})
+
+def preserve_form_input(key: str, value):
+    """Preserves a form input value across navigation."""
+    st.session_state.form_inputs[key] = value
+
+def get_preserved_input(key: str, default=None):
+    """Gets a preserved form input value."""
+    return st.session_state.form_inputs.get(key, default)
+
+def save_expander_state(expander_id: str, is_expanded: bool):
+    """Saves the state of an expander."""
+    st.session_state.expander_states[expander_id] = is_expanded
+
+def get_expander_state(expander_id: str, default: bool = False) -> bool:
+    """Gets the saved state of an expander."""
+    return st.session_state.expander_states.get(expander_id, default)
+
+def save_current_page_state():
+    """Saves the current page state before navigation."""
+    current_page = st.session_state.current_page
+    
+    if current_page == "news_analysis":
+        # Save news analysis state
+        news_state = {
+            'search_mode': st.session_state.get('search_mode', 'Counterparty-based'),
+            'custom_query': st.session_state.get('custom_query', ''),
+            'num_articles': st.session_state.get('num_articles', 5),
+            'counterparties': st.session_state.get('counterparties', []),
+            'keywords': st.session_state.get('keywords', ''),
+            'sentiment_method': st.session_state.get('sentiment_method', 'lexicon')
+        }
+        save_interface_state('news_analysis', news_state)
+    
+    elif current_page == "pdf_analysis":
+        # Save PDF analysis state
+        pdf_state = {
+            'pdf_keywords': st.session_state.get('pdf_keywords', ''),
+            'pdf_sentiment_method': st.session_state.get('pdf_sentiment_method', 'Lexicon Based'),
+            'auto_save_pdf': st.session_state.get('auto_save_pdf', True)
+        }
+        save_interface_state('pdf_analysis', pdf_state)
+    
+    elif current_page == "scheduler_config":
+        # Save scheduler config state
+        scheduler_state = {
+            'companies_input': st.session_state.get('companies_input', ''),
+            'nasdaq_selection': st.session_state.get('nasdaq_selection', 'Select a company...')
+        }
+        save_interface_state('scheduler_config', scheduler_state)
+    
+    elif current_page == "rag_chat":
+        # Save RAG chat state
+        rag_state = {
+            'chat_history': st.session_state.get('chat_history', []),
+            'last_query': st.session_state.get('last_query', ''),
+            'articles_used': st.session_state.get('articles_used', 0)
+        }
+        save_interface_state('rag_chat', rag_state)
+
+def restore_page_state():
+    """Restores the page state when navigating back to a page."""
+    current_page = st.session_state.current_page
+    
+    if current_page == "news_analysis":
+        # Restore news analysis state
+        news_state = restore_interface_state('news_analysis')
+        if news_state:
+            st.session_state.search_mode = news_state.get('search_mode', 'Counterparty-based')
+            st.session_state.custom_query = news_state.get('custom_query', '')
+            st.session_state.num_articles = news_state.get('num_articles', 5)
+            st.session_state.counterparties = news_state.get('counterparties', [])
+            st.session_state.keywords = news_state.get('keywords', '')
+            st.session_state.sentiment_method = news_state.get('sentiment_method', 'lexicon')
+    
+    elif current_page == "pdf_analysis":
+        # Restore PDF analysis state
+        pdf_state = restore_interface_state('pdf_analysis')
+        if pdf_state:
+            st.session_state.pdf_keywords = pdf_state.get('pdf_keywords', '')
+            st.session_state.pdf_sentiment_method = pdf_state.get('pdf_sentiment_method', 'Lexicon Based')
+            st.session_state.auto_save_pdf = pdf_state.get('auto_save_pdf', True)
+    
+    elif current_page == "scheduler_config":
+        # Restore scheduler config state
+        scheduler_state = restore_interface_state('scheduler_config')
+        if scheduler_state:
+            st.session_state.companies_input = scheduler_state.get('companies_input', '')
+            st.session_state.nasdaq_selection = scheduler_state.get('nasdaq_selection', 'Select a company...')
+    
+    elif current_page == "rag_chat":
+        # Restore RAG chat state
+        rag_state = restore_interface_state('rag_chat')
+        if rag_state:
+            st.session_state.chat_history = rag_state.get('chat_history', [])
+            st.session_state.last_query = rag_state.get('last_query', '')
+            st.session_state.articles_used = rag_state.get('articles_used', 0)
 
 def load_master_articles():
     """Loads a list of articles from the master JSON file."""
@@ -513,7 +662,7 @@ def display_dashboard_metrics():
         st.plotly_chart(fig, use_container_width=True)
 
 def navigation_sidebar():
-    """Renders the main navigation sidebar."""
+    """Renders the main navigation sidebar with state preservation."""
     st.sidebar.markdown("""
     <div style="text-align: center; padding: 2rem 1rem; background: linear-gradient(180deg, #005A9C 0%, #0077B6 100%); color: white; border-radius: 8px;">
         <div style="font-size: 3rem;">📊</div>
@@ -525,23 +674,36 @@ def navigation_sidebar():
     st.sidebar.markdown("### Navigation", unsafe_allow_html=True)
     st.sidebar.markdown('<div class="nav-button-container">', unsafe_allow_html=True)
     
-    if st.sidebar.button("📊 Dashboard", key="nav_dashboard", use_container_width=True, type="primary" if st.session_state.current_page == "dashboard" else "secondary"):
+    # Save current page state before navigation
+    current_page = st.session_state.current_page
+    
+    if st.sidebar.button("📊 Dashboard", key="nav_dashboard", use_container_width=True, type="primary" if current_page == "dashboard" else "secondary"):
+        # Save current state before navigating
+        save_current_page_state()
         st.session_state.current_page = "dashboard"
         st.rerun()
 
-    if st.sidebar.button("📰 News Analysis", key="nav_news", use_container_width=True, type="primary" if st.session_state.current_page == "news_analysis" else "secondary"):
+    if st.sidebar.button("📰 News Analysis", key="nav_news", use_container_width=True, type="primary" if current_page == "news_analysis" else "secondary"):
+        # Save current state before navigating
+        save_current_page_state()
         st.session_state.current_page = "news_analysis"
         st.rerun()
 
-    if st.sidebar.button("📄 PDF Analysis", key="nav_pdf", use_container_width=True, type="primary" if st.session_state.current_page == "pdf_analysis" else "secondary"):
+    if st.sidebar.button("📄 PDF Analysis", key="nav_pdf", use_container_width=True, type="primary" if current_page == "pdf_analysis" else "secondary"):
+        # Save current state before navigating
+        save_current_page_state()
         st.session_state.current_page = "pdf_analysis"
         st.rerun()
 
-    if st.sidebar.button("🤖 AI Financial Assistant", key="nav_rag", use_container_width=True, type="primary" if st.session_state.current_page == "rag_chat" else "secondary"):
+    if st.sidebar.button("🤖 AI Financial Assistant", key="nav_rag", use_container_width=True, type="primary" if current_page == "rag_chat" else "secondary"):
+        # Save current state before navigating
+        save_current_page_state()
         st.session_state.current_page = "rag_chat"
         st.rerun()
 
-    if st.sidebar.button("⏰ Scheduler Config", key="nav_scheduler", use_container_width=True, type="primary" if st.session_state.current_page == "scheduler_config" else "secondary"):
+    if st.sidebar.button("⏰ Scheduler Config", key="nav_scheduler", use_container_width=True, type="primary" if current_page == "scheduler_config" else "secondary"):
+        # Save current state before navigating
+        save_current_page_state()
         st.session_state.current_page = "scheduler_config"
         st.rerun()
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
@@ -589,12 +751,15 @@ def display_article_card(article: Dict):
 
 # --- Main Application Logic ---
 def main():
-    """Main function to run the Streamlit application."""
+    """Main function to run the Streamlit application with state preservation."""
     load_custom_css()
     initialize_session_state()
     
     st.markdown('<style>div.block-container{padding-top:1rem;}</style>', unsafe_allow_html=True)
     navigation_sidebar()
+    
+    # Restore page state if available
+    restore_page_state()
     
     # --- Dashboard View ---
     if st.session_state.current_page == "dashboard":
@@ -1596,10 +1761,7 @@ def main():
     st.markdown("""
     <div class="sticky-footer">
         <p style="margin: 0; color: #6c757d; font-size: 0.9rem;">
-            © 2024 Er. Bibit Kunwar Chhetri. All rights reserved.
-        </p>
-        <p style="margin: 0.25rem 0 0; color: #adb5bd; font-size: 0.8rem;">
-            Financial Risk Monitoring System
+            © 2025 Er. Bibit Kunwar Chhetri. All rights reserved.
         </p>
     </div>
     """, unsafe_allow_html=True)
