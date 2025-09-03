@@ -936,7 +936,7 @@ def main():
                     analysis_results = st.session_state.last_analysis_results
                     
                     # Create tabs for different views
-                    summary_tab, articles_tab, pinecone_tab = st.tabs(["📊 Summary", "📰 Articles", "🗄️ Pinecone Stats"])
+                    summary_tab, articles_tab = st.tabs(["📊 Summary", "📰 Articles"])
                     
                     with summary_tab:
                         col1, col2, col3, col4 = st.columns(4)
@@ -987,33 +987,6 @@ def main():
                     with articles_tab:
                         for article in st.session_state.articles:
                             display_article_card(article)
-                    
-                    with pinecone_tab:
-                        st.subheader("Analysis Database Statistics (analysis-db)")
-                        try:
-                            from risk_monitor.utils.pinecone_db import AnalysisPineconeDB
-                            analysis_db = AnalysisPineconeDB()
-                            stats = analysis_db.index.describe_index_stats()
-                            
-                            if stats:
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("Total Vectors", stats.get('total_vector_count', 0))
-                                with col2:
-                                    st.metric("Index Dimension", stats.get('dimension', 0))
-                                with col3:
-                                    st.metric("Index Name", "analysis-db")
-                                
-                                # Show storage results
-                                storage_stats = analysis_results['analysis_summary']['storage_stats']
-                                st.success(f"{storage_stats['success_count']} out of {storage_stats['total_count']} articles stored in Analysis Database")
-                                
-                                if storage_stats['error_count'] > 0:
-                                    st.warning(f"{storage_stats['error_count']} articles failed to store")
-                            else:
-                                st.warning("Could not retrieve Analysis Database statistics")
-                        except Exception as e:
-                            st.error(f"Error retrieving Analysis Database stats: {e}")
                 else:
                     # Fallback to simple article display
                     for article in st.session_state.articles:

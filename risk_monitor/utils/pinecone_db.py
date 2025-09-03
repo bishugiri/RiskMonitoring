@@ -121,11 +121,63 @@ class AnalysisPineconeDB:
             raise
     
     def create_article_id(self, article: Dict) -> str:
-        """Create unique ID for article based on URL and title"""
+        """Create unique ID for article based on URL only with backward compatibility"""
         url = article.get('url', '')
-        title = article.get('title', '')
-        content = f"{url}{title}"
-        return hashlib.md5(content.encode()).hexdigest()
+        if not url:
+            # Fallback to title hash if no URL available
+            title = article.get('title', '')
+            return hashlib.md5(title.encode()).hexdigest()
+        
+        # Use URL hash as the primary key for better deduplication
+        return hashlib.md5(url.encode()).hexdigest()
+    
+    def article_exists(self, url: str) -> bool:
+        """Check if an article with the given URL already exists in the database"""
+        try:
+            if not url:
+                return False
+            
+            # Create the same ID that would be used for storage
+            article_id = hashlib.md5(url.encode()).hexdigest()
+            
+            # Check if the ID exists in the index
+            # Use fetch to check for existence
+            fetch_result = self.index.fetch(ids=[article_id])
+            
+            # If the ID exists in the result, the article exists
+            return article_id in fetch_result.vectors
+            
+        except Exception as e:
+            logger.error(f"Error checking if article exists: {e}")
+            return False
+    
+    def article_exists_backward_compatible(self, url: str, title: str = None) -> bool:
+        """Check if an article exists using both new (URL-only) and old (URL+title) methods"""
+        try:
+            if not url:
+                return False
+            
+            # Check with new URL-only method
+            new_id = hashlib.md5(url.encode()).hexdigest()
+            
+            # Check with old URL+title method if title is provided
+            old_id = None
+            if title:
+                old_id = hashlib.md5(f"{url}{title}".encode()).hexdigest()
+            
+            # Fetch both IDs
+            ids_to_check = [new_id]
+            if old_id:
+                ids_to_check.append(old_id)
+            
+            fetch_result = self.index.fetch(ids=ids_to_check)
+            
+            # Check if either ID exists
+            return any(article_id in fetch_result.vectors for article_id in ids_to_check)
+            
+        except Exception as e:
+            logger.error(f"Error checking if article exists (backward compatible): {e}")
+            return False
     
     def extract_clean_source(self, article: Dict) -> str:
         """Extract clean source name from article"""
@@ -231,36 +283,31 @@ class AnalysisPineconeDB:
         return metadata
     
     def store_article(self, article: Dict, analysis_result: Dict) -> bool:
-        """Store article with analysis results in Pinecone analysis index - FORCED INSERTION"""
-        article_title = article.get('title', 'Unknown')
+        """Store article with analysis results in Pinecone analysis index with backward compatibility"""
         try:
-            logger.info(f"🔥 STARTING FORCED INSERTION for article: {article_title}")
+            # Check if article already exists using backward compatible method
+            url = article.get('url', '')
+            title = article.get('title', '')
+            if url and self.article_exists_backward_compatible(url, title):
+                logger.info(f"Article already exists in database, skipping: {article.get('title', 'Unknown')} ({url})")
+                return True  # Return True since we're not treating this as an error
             
             # Generate embedding from article text
             text = article.get('text', '')
             if not text:
-                logger.warning(f"No text content for article: {article_title}")
+                logger.warning(f"No text content for article: {article.get('title', 'Unknown')}")
                 return False
             
-            logger.info(f"🔥 Generating embedding for article: {article_title}")
             # Create embedding
             embedding = self.generate_embedding(text)
-            logger.info(f"✅ Embedding generated successfully for: {article_title}")
             
             # Create unique ID
             article_id = self.create_article_id(article)
-            logger.info(f"🔥 Article ID created: {article_id} for: {article_title}")
             
             # Format metadata
             metadata = self.format_metadata(article, analysis_result)
-            logger.info(f"🔥 Metadata formatted for: {article_title}")
             
-            # FORCED INSERTION - Use upsert to ensure data gets stored
-            print(f"   🔥 FORCING INSERTION into analysis-db: {article_title}")
-            logger.info(f"🔥 EXECUTING FORCED INSERTION into analysis-db: {article_title}")
-            
-
-            
+            # Upsert to Pinecone analysis index
             self.index.upsert(
                 vectors=[{
                     'id': article_id,
@@ -269,63 +316,41 @@ class AnalysisPineconeDB:
                 }]
             )
             
-            logger.info(f"✅ SUCCESSFULLY FORCED article into analysis-db: {article_title}")
+            logger.info(f"Successfully stored article in analysis index: {article.get('title', 'Unknown')}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ CRITICAL ERROR storing article in analysis-db: {article_title} - {e}")
-            import traceback
-            logger.error(f"❌ CRITICAL ERROR: Full traceback: {traceback.format_exc()}")
-            # Try one more time with different approach
-            try:
-                print(f"   🔄 RETRYING INSERTION with different approach...")
-                logger.info(f"🔄 RETRYING INSERTION with different approach for: {article_title}")
-                # Force refresh and retry
-                self.index.upsert(
-                    vectors=[{
-                        'id': f"{article_id}_retry",
-                        'values': embedding,
-                        'metadata': metadata
-                    }]
-                )
-                logger.info(f"✅ RETRY SUCCESSFUL for article: {article_title}")
-                return True
-            except Exception as retry_error:
-                logger.error(f"❌ RETRY FAILED for article {article_title}: {retry_error}")
-                import traceback
-                logger.error(f"❌ RETRY FAILED: Full traceback: {traceback.format_exc()}")
-                return False
+            logger.error(f"Error storing article in analysis index: {e}")
+            return False
     
     def store_articles_batch(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict[str, int]:
-        """Store multiple articles in batch to analysis-db - FORCED INSERTION"""
+        """Store multiple articles in batch to analysis index with backward compatibility"""
         success_count = 0
         error_count = 0
+        duplicate_count = 0
         
-        print(f"🔥 FORCING BATCH INSERTION into analysis-db: {len(articles)} articles")
-        logger.info(f"🔥 STARTING FORCED BATCH INSERTION into analysis-db: {len(articles)} articles")
-        
-        for i, (article, analysis_result) in enumerate(zip(articles, analysis_results), 1):
-            article_title = article.get('title', 'Unknown')[:50]
-            print(f"   📝 Processing article {i}/{len(articles)}: {article_title}...")
-            logger.info(f"🔥 Processing article {i}/{len(articles)}: {article_title}")
+        for article, analysis_result in zip(articles, analysis_results):
+            # Check if article already exists using backward compatible method
+            url = article.get('url', '')
+            title = article.get('title', '')
+            if url and self.article_exists_backward_compatible(url, title):
+                duplicate_count += 1
+                logger.info(f"Article already exists in database, skipping: {article.get('title', 'Unknown')} ({url})")
+                continue
             
             if self.store_article(article, analysis_result):
                 success_count += 1
-                print(f"   ✅ Article {i} successfully forced into analysis-db")
-                logger.info(f"✅ Article {i} successfully forced into analysis-db: {article_title}")
             else:
                 error_count += 1
-                print(f"   ❌ Article {i} failed to insert into analysis-db")
-                logger.error(f"❌ Article {i} failed to insert into analysis-db: {article_title}")
         
         result = {
             'success_count': success_count,
             'error_count': error_count,
+            'duplicate_count': duplicate_count,
             'total_count': len(articles)
         }
         
-        print(f"🔥 ANALYSIS-DB BATCH INSERTION COMPLETE: {success_count} successful, {error_count} errors")
-        logger.info(f"🔥 ANALYSIS-DB BATCH INSERTION COMPLETE: {success_count} successful, {error_count} errors")
+        logger.info(f"Analysis index batch storage complete: {success_count} successful, {error_count} errors, {duplicate_count} duplicates")
         return result
     
     def search_similar_articles(self, query: str, top_k: int = 10, entity_filter: str = None, date_filter: str = None) -> List[Dict]:
@@ -499,11 +524,15 @@ class PineconeDB:
             raise
     
     def create_article_id(self, article: Dict) -> str:
-        """Create unique ID for article based on URL and title"""
+        """Create unique ID for article based on URL only with backward compatibility"""
         url = article.get('url', '')
-        title = article.get('title', '')
-        content = f"{url}{title}"
-        return hashlib.md5(content.encode()).hexdigest()
+        if not url:
+            # Fallback to title hash if no URL available
+            title = article.get('title', '')
+            return hashlib.md5(title.encode()).hexdigest()
+        
+        # Use URL hash as the primary key for better deduplication
+        return hashlib.md5(url.encode()).hexdigest()
     
     def extract_clean_source(self, article: Dict) -> str:
         """Extract clean source name from article"""
