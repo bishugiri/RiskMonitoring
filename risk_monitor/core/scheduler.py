@@ -16,6 +16,7 @@ import asyncio
 from typing import Dict, List, Optional, Any
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from openai import OpenAI
 
 from risk_monitor.core.news_collector import NewsCollector
 from risk_monitor.core.risk_analyzer import RiskAnalyzer

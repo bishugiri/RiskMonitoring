@@ -963,14 +963,43 @@ def main():
             # Get database stats
             db_stats = rag_service.get_database_stats()
             
-            # Display database info
+            # Display database info with filters
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("📊 Total Articles", db_stats.get('total_articles', 0))
+            
+            # Add filter dropdowns in place of Index Dimension and Index Fullness
             with col2:
-                st.metric("🔢 Index Dimension", db_stats.get('index_dimension', 0))
+                # Company/Entity filter
+                try:
+                    available_companies = rag_service.get_available_companies()
+                    selected_company = st.selectbox(
+                        "🏢 Select Company/Entity",
+                        options=available_companies,
+                        index=0,
+                        help="Filter articles by specific company or entity"
+                    )
+                except Exception as e:
+                    st.error(f"Error loading companies: {e}")
+                    selected_company = "All Companies"
+            
             with col3:
-                st.metric("📈 Index Fullness", f"{db_stats.get('index_fullness', 0):.2%}")
+                # Date range filter
+                try:
+                    available_dates = rag_service.get_available_dates()
+                    selected_date = st.selectbox(
+                        "📅 Select Date Range",
+                        options=available_dates,
+                        index=0,
+                        help="Filter articles by date range"
+                    )
+                except Exception as e:
+                    st.error(f"Error loading dates: {e}")
+                    selected_date = "All Dates"
+            
+            # Show active filters
+            if selected_company != "All Companies" or selected_date != "All Dates":
+                st.info(f"🔍 **Active Filters:** Company: {selected_company} | Date: {selected_date}")
             
             st.markdown("---")
             
@@ -1023,19 +1052,37 @@ def main():
                                 for msg in recent_messages[:-1]  # Exclude current user message
                             ])
                         
-                        # Use raw query format with conversation context
+                        # Use raw query format with conversation context and filters
                         raw_query = user_query.strip()
                         if conversation_context:
                             enhanced_query = f"Context from previous conversation:\n{conversation_context}\n\nCurrent question: {raw_query}"
                         else:
                             enhanced_query = raw_query
                         
-                        response = rag_service.chat_with_agent(enhanced_query)
+                        # Apply filters to the query
+                        entity_filter = selected_company if selected_company != "All Companies" else None
+                        date_filter = selected_date if selected_date != "All Dates" else None
                         
-                        # Show articles used count
+                        response = rag_service.chat_with_agent(
+                            enhanced_query, 
+                            conversation_context=conversation_context,
+                            entity_filter=entity_filter,
+                            date_filter=date_filter
+                        )
+                        
+                        # Show articles used count and filters
                         articles_used = response.get('articles_used', 0)
                         if articles_used > 0:
-                            st.caption(f"📰 Analyzed {articles_used} articles from your database")
+                            filter_info = []
+                            if response.get('entity_filter_applied'):
+                                filter_info.append(f"Company: {response['entity_filter_applied']}")
+                            if response.get('date_filter_applied'):
+                                filter_info.append(f"Date: {response['date_filter_applied']}")
+                            
+                            if filter_info:
+                                st.caption(f"📰 Analyzed {articles_used} articles from your database (Filters: {', '.join(filter_info)})")
+                            else:
+                                st.caption(f"📰 Analyzed {articles_used} articles from your database")
                         
                         # Add AI response to history
                         st.session_state.chat_history.append({
@@ -1338,8 +1385,8 @@ def main():
                             st.session_state.companies_input = "\n".join(config["entities"])
                             st.success(f"✅ Added {symbol}")
                             st.rerun()
-                        else:
-                            st.warning(f"⚠️ {symbol} is already in the list")
+                    else:
+                        st.warning(f"⚠️ {symbol} is already in the list")
         
         with analysis_tab:
             st.subheader("Analysis Configuration")
@@ -1379,7 +1426,7 @@ def main():
                     value=config.get("enable_pinecone_storage", True),
                     help="Store articles in Pinecone vector database"
                 )
-                config["enable_pinecone_storage"] = enable_pinecone_storage
+            config["enable_pinecone_storage"] = enable_pinecone_storage
         
         with email_tab:
             st.subheader("Email Notification Settings")

@@ -1,0 +1,6 @@
+{
+    "terminal.integrated.scrollback": -1,
+    "terminal.integrated.scrollOnOutput": true,
+    "terminal.integrated.scrollOnTyping": true,
+    "terminal.integrated.enableMultiLinePasteWarning": false
+}

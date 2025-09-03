@@ -31,7 +31,8 @@
     "use_openai": true,
     "email_enabled": true,
     "email_recipients": [
-        "be2020se709@gces.edu.np"
+        "be2020se709@gces.edu.np",
+        "giribishu@gmail.com"
     ],
     "enable_pinecone_storage": true,
     "enable_dual_sentiment": true,
