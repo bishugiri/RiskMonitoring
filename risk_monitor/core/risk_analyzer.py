@@ -332,37 +332,43 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             # Perform advanced analysis
             analysis_results = await self.analyze_articles_with_advanced_risk(articles, sentiment_method)
             
-            # Store in Pinecone if available
+            # Store in Pinecone database
             storage_stats = {}
-            storage_type = "local_only"
+            storage_type = "failed"
             
             if PINECONE_AVAILABLE:
                 try:
-                    # Use AnalysisPineconeDB for News Analysis (FORCED INSERTION into analysis-db)
-                    self.logger.info(f"🔥 STARTING FORCED INSERTION into analysis-db for {len(articles)} articles")
-                    analysis_pinecone_db = AnalysisPineconeDB()
+                    # Use AnalysisPineconeDB for News Analysis (analysis-db) - MATCHING SCHEDULER FORMAT
+                    self.logger.info(f"🔥 STARTING STORAGE in analysis-db for {len(articles)} articles")
+                    from risk_monitor.utils.pinecone_db import AnalysisPineconeDB
+                    
+                    analysis_db = AnalysisPineconeDB()
                     self.logger.info("🔥 AnalysisPineconeDB initialized successfully")
                     
-                    storage_stats = analysis_pinecone_db.store_articles_batch(articles, analysis_results)
-                    storage_type = "analysis_pinecone"
-                    self.logger.info(f"🔥 SUCCESSFULLY FORCED {storage_stats['success_count']} articles into analysis-db")
+                    # Create analysis results in the same format as scheduler
+                    analysis_results_for_storage = []
+                    for article in articles:
+                        analysis_result = {
+                            'sentiment_analysis': article.get('sentiment_analysis', {}),
+                            'risk_analysis': article.get('risk_analysis', {}),
+                            'analysis_method': article.get('sentiment_method', 'unknown')
+                        }
+                        analysis_results_for_storage.append(analysis_result)
+                    
+                    storage_stats = analysis_db.store_articles_batch(articles, analysis_results_for_storage)
+                    
+                    storage_type = "analysis_db"
+                    self.logger.info(f"🔥 SUCCESSFULLY STORED {storage_stats['success_count']} articles in analysis-db")
                     
                     if storage_stats['error_count'] > 0:
-                        self.logger.warning(f"⚠️ {storage_stats['error_count']} articles failed to force into analysis-db")
+                        self.logger.warning(f"⚠️ {storage_stats['error_count']} articles failed to store in analysis-db")
                         
                 except Exception as e:
-                    self.logger.error(f"🔥 CRITICAL ERROR: Analysis-db storage failed: {e}")
-                    # Try fallback to regular PineconeDB
-                    try:
-                        self.logger.info("🔄 Attempting fallback to sentiment-db...")
-                        pinecone_db = PineconeDB()
-                        storage_stats = pinecone_db.store_articles_batch(articles, analysis_results)
-                        storage_type = "pinecone"
-                        self.logger.info("Fallback to sentiment-db successful")
-                    except Exception as fallback_error:
-                        self.logger.error(f"❌ Fallback to sentiment-db also failed: {fallback_error}")
-                        storage_type = "failed"
-                        storage_stats = {'success_count': 0, 'error_count': len(articles), 'total_count': len(articles)}
+                    self.logger.error(f"🔥 CRITICAL ERROR: analysis-db storage failed: {e}")
+                    import traceback
+                    self.logger.error(f"🔥 CRITICAL ERROR: Full traceback: {traceback.format_exc()}")
+                    storage_type = "failed"
+                    storage_stats = {'success_count': 0, 'error_count': len(articles), 'total_count': len(articles)}
             
             # Create comprehensive summary
             summary = {
@@ -590,7 +596,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                         'analysis_timestamp': datetime.now().isoformat(),
                         'sentiment_method': sentiment_method,
                         'risk_method': 'llm_advanced',
-                        'storage_type': 'analysis_only',
+                        'storage_type': 'database_only',
                         'storage_stats': {'success_count': 0, 'error_count': 0, 'total_count': len(articles)}
                     },
                     'sentiment_summary': self._calculate_sentiment_summary(analysis_results),

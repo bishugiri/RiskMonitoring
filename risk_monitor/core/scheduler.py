@@ -494,44 +494,11 @@ class NewsScheduler:
         if self.config.enable_pinecone_storage:
             storage_result = await self.store_articles_in_pinecone_async(all_articles)
             logger.info(f"Pinecone storage: {storage_result['success_count']}/{storage_result['total_count']} articles stored")
-        
-        # Save articles to local files
-        if all_articles:
-            # Save to output directory
-            output_dir = self.config.config.OUTPUT_DIR
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Create filename with timestamp
-            filename = f"scheduled_news_{timestamp}.json"
-            filepath = os.path.join(output_dir, filename)
-            
-            # Save to file (using a thread pool since file operations are blocking)
-            loop = asyncio.get_event_loop()
-            with ThreadPoolExecutor() as executor:
-                await loop.run_in_executor(
-                    executor,
-                    self._save_articles_to_file,
-                    all_articles,
-                    filepath
-                )
-            
-            logger.info(f"Saved {len(all_articles)} articles to {filepath}")
-            
-            # Save analysis to file
-            analysis_filename = f"scheduled_analysis_{timestamp}.json"
-            analysis_filepath = os.path.join(output_dir, analysis_filename)
-            
-            with ThreadPoolExecutor() as executor:
-                await loop.run_in_executor(
-                    executor,
-                    self._save_json_to_file,
-                    analysis,
-                    analysis_filepath
-                )
-            
-            logger.info(f"Saved risk analysis to {analysis_filepath}")
+        else:
+            logger.warning("Pinecone storage is disabled - articles will not be stored")
 
-            # Enhanced Email reporting
+        # Enhanced Email reporting
+        if all_articles:
             try:
                 if self.config.email_enabled:
                     # Prepare summary
@@ -589,15 +556,7 @@ class NewsScheduler:
             
         return articles
         
-    def _save_articles_to_file(self, articles: List[Dict], filepath: str) -> None:
-        """Save articles to a file (helper method for async operation)"""
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(articles, f, indent=2, ensure_ascii=False, default=str)
-            
-    def _save_json_to_file(self, data: Any, filepath: str) -> None:
-        """Save JSON data to a file (helper method for async operation)"""
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+
     
     def schedule_daily_run(self):
         """Schedule the daily news collection"""

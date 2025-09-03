@@ -4,6 +4,7 @@ Stores article analysis results with OpenAI embeddings and comprehensive metadat
 """
 
 from pinecone import Pinecone
+import pinecone
 import openai
 import json
 import logging
@@ -53,8 +54,11 @@ class AnalysisPineconeDB:
         try:
             self.index = self._get_or_create_index()
             print(f"   ✅ Analysis index ready: {self.index_name}")
+
         except Exception as e:
             print(f"   ❌ ERROR getting/creating analysis index: {e}")
+            import traceback
+            print(f"   ❌ ERROR: Full traceback: {traceback.format_exc()}")
             raise
         
         print("=" * 80)
@@ -80,7 +84,11 @@ class AnalysisPineconeDB:
                     self.pc.create_index(
                         name=self.index_name,
                         dimension=self.dimension,
-                        metric="cosine"
+                        metric="cosine",
+                        spec=pinecone.ServerlessSpec(
+                            cloud="aws",
+                            region="us-east-1"
+                        )
                     )
                     print(f"   ✅ Analysis index created successfully")
                     return self.pc.Index(self.index_name)
@@ -145,19 +153,22 @@ class AnalysisPineconeDB:
         return "Unknown"
     
     def format_metadata(self, article: Dict, analysis_result: Dict) -> Dict[str, Any]:
-        """Format comprehensive metadata for Pinecone storage"""
+        """Format comprehensive metadata for Pinecone storage - MATCHING SCHEDULER FORMAT"""
         
-        # Extract sentiment analysis
+        # Extract sentiment analysis from the proper structure (like scheduler)
         sentiment_analysis = analysis_result.get('sentiment_analysis', {})
         sentiment_score = sentiment_analysis.get('score', 0)
         sentiment_category = sentiment_analysis.get('category', 'Neutral')
         sentiment_justification = sentiment_analysis.get('justification', '')
         
-        # Extract risk analysis
+        # Extract risk analysis from the proper structure (like scheduler)
         risk_analysis = analysis_result.get('risk_analysis', {})
-        risk_score = risk_analysis.get('risk_score', 0)
+        risk_score = risk_analysis.get('overall_risk_score', 0)
         risk_categories = risk_analysis.get('risk_categories', {})
-        risk_indicators = risk_analysis.get('risk_indicators', [])
+        risk_indicators = risk_analysis.get('key_risk_indicators', [])  # Fixed: use correct field name from scheduler
+        
+        # Extract analysis method from the proper structure (like scheduler)
+        analysis_method = analysis_result.get('analysis_method', 'unknown')
         
         # Extract article metadata
         publish_date = article.get('publish_date')
@@ -173,7 +184,7 @@ class AnalysisPineconeDB:
         else:
             formatted_date = 'N/A'
         
-        # Create comprehensive metadata
+        # Create comprehensive metadata matching scheduler format
         metadata = {
             # Article identification
             'article_id': self.create_article_id(article),
@@ -190,7 +201,7 @@ class AnalysisPineconeDB:
             'meta_description': article.get('meta_description', ''),
             'entity': article.get('entity', ''),
             
-            # Sentiment analysis
+            # Sentiment analysis (matching scheduler format)
             'sentiment_score': sentiment_score,
             'sentiment_category': sentiment_category,
             'sentiment_justification': sentiment_justification,
@@ -198,19 +209,21 @@ class AnalysisPineconeDB:
             'negative_count': sentiment_analysis.get('negative_count', 0),
             'total_relevant': sentiment_analysis.get('total_relevant', 0),
             
-            # Risk analysis
+            # Risk analysis (matching scheduler format)
             'risk_score': risk_score,
             'risk_categories': json.dumps(risk_categories),
             'risk_indicators': json.dumps(risk_indicators),
             'keywords_found': json.dumps(risk_analysis.get('keywords_found', [])),
             
-            # Processing metadata
+            # Processing metadata (matching scheduler format)
             'extraction_time': article.get('extraction_time', ''),
             'analysis_timestamp': datetime.now().isoformat(),
-            'analysis_method': analysis_result.get('analysis_method', 'lexicon'),
+            'analysis_method': analysis_method,  # Use the proper analysis_method from scheduler
+            'sentiment_method': analysis_method,  # Use the same method as scheduler
+            'risk_method': 'llm_advanced',  # Default risk method
             'storage_type': 'analysis_db',  # Mark as analysis database
             
-            # Full analysis result (for complete data preservation)
+            # Full analysis result (for complete data preservation) - MATCHING SCHEDULER FORMAT
             'full_analysis': json.dumps(analysis_result),
             'full_article_data': json.dumps(article)
         }
@@ -246,6 +259,8 @@ class AnalysisPineconeDB:
             print(f"   🔥 FORCING INSERTION into analysis-db: {article_title}")
             logger.info(f"🔥 EXECUTING FORCED INSERTION into analysis-db: {article_title}")
             
+
+            
             self.index.upsert(
                 vectors=[{
                     'id': article_id,
@@ -259,6 +274,8 @@ class AnalysisPineconeDB:
             
         except Exception as e:
             logger.error(f"❌ CRITICAL ERROR storing article in analysis-db: {article_title} - {e}")
+            import traceback
+            logger.error(f"❌ CRITICAL ERROR: Full traceback: {traceback.format_exc()}")
             # Try one more time with different approach
             try:
                 print(f"   🔄 RETRYING INSERTION with different approach...")
@@ -275,6 +292,8 @@ class AnalysisPineconeDB:
                 return True
             except Exception as retry_error:
                 logger.error(f"❌ RETRY FAILED for article {article_title}: {retry_error}")
+                import traceback
+                logger.error(f"❌ RETRY FAILED: Full traceback: {traceback.format_exc()}")
                 return False
     
     def store_articles_batch(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict[str, int]:
@@ -352,6 +371,29 @@ class AnalysisPineconeDB:
         except Exception as e:
             logger.error(f"Error searching analysis-db index: {e}")
             return []
+    
+    def get_index_stats(self) -> Dict[str, Any]:
+        """Get index statistics"""
+        try:
+            stats = self.index.describe_index_stats()
+            return {
+                'total_vector_count': stats.get('total_vector_count', 0),
+                'dimension': stats.get('dimension', 0),
+                'index_fullness': stats.get('index_fullness', 0)
+            }
+        except Exception as e:
+            logger.error(f"Error getting index stats: {e}")
+            return {}
+    
+    def delete_article(self, article_id: str) -> bool:
+        """Delete an article from the index"""
+        try:
+            self.index.delete(ids=[article_id])
+            logger.info(f"Successfully deleted article: {article_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting article: {e}")
+            return False
 
 class PineconeDB:
     """Pinecone database integration for storing article analysis results"""
@@ -420,7 +462,11 @@ class PineconeDB:
                     self.pc.create_index(
                         name=self.index_name,
                         dimension=self.dimension,
-                        metric="cosine"
+                        metric="cosine",
+                        spec=pinecone.ServerlessSpec(
+                            cloud="aws",
+                            region="us-east-1"
+                        )
                     )
                     print(f"   ✅ Index created successfully")
                     return self.pc.Index(self.index_name)
@@ -495,7 +541,7 @@ class PineconeDB:
         
         # Extract risk analysis
         risk_analysis = analysis_result.get('risk_analysis', {})
-        risk_score = risk_analysis.get('risk_score', 0)
+        risk_score = risk_analysis.get('overall_risk_score', 0)  # Fixed: use correct field name
         risk_categories = risk_analysis.get('risk_categories', {})
         risk_indicators = risk_analysis.get('risk_indicators', [])
         
@@ -547,7 +593,9 @@ class PineconeDB:
             # Processing metadata
             'extraction_time': article.get('extraction_time', ''),
             'analysis_timestamp': datetime.now().isoformat(),
-            'analysis_method': analysis_result.get('analysis_method', 'lexicon'),
+            'analysis_method': 'llm_advanced',  # Fixed: use string instead of object
+            'sentiment_method': analysis_result.get('analysis_method', {}).get('sentiment', 'llm'),
+            'risk_method': analysis_result.get('analysis_method', {}).get('risk', 'llm_advanced'),
             'storage_type': 'database',  # Mark as database storage
             
             # Full analysis result (for complete data preservation)
@@ -576,7 +624,7 @@ class PineconeDB:
             metadata = self.format_metadata(article, analysis_result)
             
             # Upsert to Pinecone
-            self.index.upsert(
+            upsert_result = self.index.upsert(
                 vectors=[{
                     'id': article_id,
                     'values': embedding,

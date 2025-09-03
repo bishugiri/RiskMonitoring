@@ -414,48 +414,7 @@ def initialize_session_state():
     if 'nasdaq_companies' not in st.session_state: st.session_state.nasdaq_companies = None
     if 'db_stats' not in st.session_state: st.session_state.db_stats = None
 
-def load_master_articles():
-    """Loads a list of articles from the master JSON file."""
-    output_dir = "output"
-    master_file = os.path.join(output_dir, "master_news_articles.json")
-    os.makedirs(output_dir, exist_ok=True)
-    if os.path.exists(master_file):
-        try:
-            with open(master_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return data.get('articles', []), data.get('metadata', {})
-        except Exception as e:
-            st.warning(f"⚠️ Could not load master file: {e}")
-    return [], {}
 
-def save_to_master_file(new_articles: List[Dict], search_metadata: Dict):
-    """Saves new articles and metadata to the master JSON file."""
-    output_dir = "output"
-    master_file = os.path.join(output_dir, "master_news_articles.json")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    try:
-        existing_articles, existing_metadata = load_master_articles()
-        combined_articles = existing_articles + new_articles
-        seen_urls = set()
-        unique_articles = []
-        for article in combined_articles:
-            if article.get('url') and article['url'] not in seen_urls:
-                unique_articles.append(article)
-                seen_urls.add(article['url'])
-        
-        existing_metadata.update(search_metadata)
-        
-        data_to_save = {
-            "metadata": existing_metadata,
-            "articles": unique_articles
-        }
-        
-        with open(master_file, 'w', encoding='utf-8') as f:
-            json.dump(data_to_save, f, ensure_ascii=False, indent=4)
-        return True, "Results saved successfully!"
-    except Exception as e:
-        return False, f"Error saving results: {e}"
 
 
 
@@ -825,10 +784,7 @@ def main():
             sentiment_method = st.selectbox("Sentiment Analysis Method", ["Lexicon Based", "LLM Based"], index=0, help="Lexicon is fast and rule-based; LLM is more nuanced but requires an OpenAI API key.", key="sentiment_method_select")
             st.session_state.sentiment_method = sentiment_method.lower().replace(' ', '_')
             
-            # Storage options
-            st.subheader("Storage Options")
-            store_in_database = st.checkbox("Store in Analysis Database", value=True, help="Store analysis results in the Analysis Database (analysis-db) for future retrieval and semantic search")
-            st.checkbox("Auto-save results", value=st.session_state.get('auto_save', True), help="Automatically save results to a master JSON file.", key="auto_save")
+            # Auto-save functionality removed - all data stored in database
         
         st.markdown("---")
         if st.button("📰 Collect and Analyze Articles", type="primary", use_container_width=True):
@@ -856,9 +812,7 @@ def main():
                 total_steps = len(queries) * st.session_state.num_articles
                 current_step = 0
                 
-                # Use storage option from advanced tab
-                use_pinecone = store_in_database
-                
+                # Always store in analysis-db (News Analysis specific index)
                 for i, query in enumerate(queries):
                     status_text.info(f"Collecting news for: **{query}**")
                     articles = news_collector.collect_articles(query, st.session_state.num_articles)
@@ -869,113 +823,83 @@ def main():
                 
                 # Analyze articles with comprehensive analysis
                 if collected_articles:
-                    status_text.info("Analyzing articles and storing in database...")
+                    status_text.info("Analyzing articles and storing in analysis-db...")
                     
-                    if use_pinecone:
-                        try:
-                            # Debug logging
-                            st.write(f"🔥 DEBUG: Starting analysis for {len(collected_articles)} articles")
-                            st.write(f"🔥 DEBUG: use_pinecone = {use_pinecone}")
-                            st.write(f"🔥 DEBUG: sentiment_method = {st.session_state.sentiment_method}")
-                            
-                            # Use new comprehensive analysis with optional Pinecone storage
-                            st.write(f"🔥 DEBUG: Calling analyze_and_store_in_pinecone...")
-                            analysis_results = analyzer.analyze_and_store_in_pinecone(
-                                collected_articles, 
-                                st.session_state.sentiment_method,
-                                store_in_db=use_pinecone
-                            )
-                            st.write(f"🔥 DEBUG: analyze_and_store_in_pinecone completed successfully")
-                            
-                            # Extract individual article results for display
-                            individual_analyses = analysis_results['individual_analyses']
-                            st.session_state.articles = []
-                            
-                            for i, (article, analysis) in enumerate(zip(collected_articles, individual_analyses)):
-                                # Merge article data with analysis results
-                                article.update({
-                                    'sentiment_score': analysis['sentiment_analysis']['score'],
-                                    'sentiment_category': analysis['sentiment_analysis']['category'],
-                                    'sentiment_method': st.session_state.sentiment_method,
-                                    'sentiment_justification': analysis['sentiment_analysis'].get('justification', ''),
-                                    'risk_score': analysis['risk_analysis']['risk_score'],
-                                    'risk_categories': analysis['risk_analysis']['risk_categories']
-                                })
-                                st.session_state.articles.append(article)
-                            
-                            # Store comprehensive results
-                            st.session_state.last_analysis_results = analysis_results
-                            
-                            # Show storage statistics
-                            storage_stats = analysis_results['analysis_summary']['storage_stats']
-                            storage_type = analysis_results['analysis_summary']['storage_type']
-                            if storage_type == "analysis_pinecone":
-                                status_text.success(f"🔥 Analysis complete! FORCED {storage_stats['success_count']} articles into Analysis Database (analysis-db).")
-                                # Debug info
-                                with st.expander("🔍 Debug: Analysis Database Details"):
-                                    st.write(f"**Storage Type:** {storage_type}")
-                                    st.write(f"**Database:** analysis-db")
-                                    st.write(f"**Success Count:** {storage_stats['success_count']}")
-                                    st.write(f"**Error Count:** {storage_stats['error_count']}")
-                                    st.write(f"**Total Count:** {storage_stats['total_count']}")
-                                    st.write(f"**Status:** 🔥 FORCED INSERTION SUCCESSFUL")
-                            elif storage_type == "pinecone":
-                                status_text.success(f"✅ Analysis complete! Stored {storage_stats['success_count']} articles in Database (sentiment-db).")
-                                # Debug info
-                                with st.expander("🔍 Debug: Database Details"):
-                                    st.write(f"**Storage Type:** {storage_type}")
-                                    st.write(f"**Database:** sentiment-db")
-                                    st.write(f"**Success Count:** {storage_stats['success_count']}")
-                                    st.write(f"**Error Count:** {storage_stats['error_count']}")
-                                    st.write(f"**Total Count:** {storage_stats['total_count']}")
-                                    st.write(f"**Status:** Fallback to sentiment-db")
-                            elif storage_type == "failed":
-                                status_text.error(f"❌ CRITICAL ERROR: Failed to store articles in any database!")
-                                # Debug info
-                                with st.expander("🔍 Debug: Critical Error Details"):
-                                    st.write(f"**Storage Type:** {storage_type}")
-                                    st.write(f"**Database:** None")
-                                    st.write(f"**Success Count:** {storage_stats['success_count']}")
-                                    st.write(f"**Error Count:** {storage_stats['error_count']}")
-                                    st.write(f"**Total Count:** {storage_stats['total_count']}")
-                                    st.write(f"**Status:** ❌ ALL DATABASES FAILED")
-                            elif storage_type == "analysis_only":
-                                status_text.success(f"✅ Analysis complete! Results analyzed but not stored in database (analysis-only mode).")
-                                # Debug info
-                                with st.expander("🔍 Debug: Analysis-Only Mode Details"):
-                                    st.write(f"**Storage Type:** {storage_type}")
-                                    st.write(f"**Database:** None (analysis only)")
-                                    st.write(f"**Articles Analyzed:** {len(collected_articles)}")
-                            else:
-                                status_text.success(f"✅ Analysis complete! Stored {storage_stats['success_count']} articles locally (Pinecone unavailable).")
-                            
-                        except Exception as e:
+                    # Always store in analysis-db
+                    try:
+                        # Debug logging
+                        st.write(f"🔥 DEBUG: Starting analysis for {len(collected_articles)} articles")
+                        st.write(f"🔥 DEBUG: sentiment_method = {st.session_state.sentiment_method}")
+                        
+                        # Use comprehensive analysis with storage in analysis-db
+                        st.write(f"🔥 DEBUG: Calling analyze_and_store_in_pinecone...")
+                        analysis_results = analyzer.analyze_and_store_in_pinecone(
+                            collected_articles, 
+                            st.session_state.sentiment_method,
+                            store_in_db=True  # Always store in analysis-db
+                        )
+                        st.write(f"🔥 DEBUG: analyze_and_store_in_pinecone completed successfully")
+                        
+                        # Extract individual article results for display
+                        individual_analyses = analysis_results['individual_analyses']
+                        st.session_state.articles = []
+                        
+                        for i, (article, analysis) in enumerate(zip(collected_articles, individual_analyses)):
+                            # Merge article data with analysis results
+                            article.update({
+                                'sentiment_score': analysis['sentiment_analysis']['score'],
+                                'sentiment_category': analysis['sentiment_analysis']['category'],
+                                'sentiment_method': st.session_state.sentiment_method,
+                                'sentiment_justification': analysis['sentiment_analysis'].get('justification', ''),
+                                'risk_score': analysis['risk_analysis']['overall_risk_score'],  # Fixed: use correct field name
+                                'risk_categories': analysis['risk_analysis']['risk_categories']
+                            })
+                            st.session_state.articles.append(article)
+                        
+                        # Store comprehensive results
+                        st.session_state.last_analysis_results = analysis_results
+                        
+                        # Show storage statistics (always analysis-db)
+                        storage_stats = analysis_results['analysis_summary']['storage_stats']
+                        storage_type = analysis_results['analysis_summary']['storage_type']
+                        
+
+                        
+                        if storage_type == "analysis_db" or storage_type == "pinecone":
+                            status_text.success(f"🔥 Analysis complete! {storage_stats['success_count']} articles stored in Analysis Database (analysis-db).")
+                            # Debug info
+                            with st.expander("🔍 Analysis Database Details"):
+                                st.write(f"**Database:** analysis-db")
+                                st.write(f"**Success Count:** {storage_stats['success_count']}")
+                                st.write(f"**Error Count:** {storage_stats['error_count']}")
+                                st.write(f"**Total Count:** {storage_stats['total_count']}")
+                                st.write(f"**Status:** 🔥 SUCCESSFULLY STORED")
+                        elif storage_type == "failed":
+                            status_text.error(f"❌ CRITICAL ERROR: Failed to store articles in analysis-db!")
+                            # Debug info
+                            with st.expander("🔍 Error Details"):
+                                st.write(f"**Storage Type:** {storage_type}")
+                                st.write(f"**Success Count:** {storage_stats['success_count']}")
+                                st.write(f"**Error Count:** {storage_stats['error_count']}")
+                                st.write(f"**Total Count:** {storage_stats['total_count']}")
+                                st.write(f"**Status:** ❌ STORAGE FAILED")
+                        else:
+                            # Unknown storage type - show as warning
+                            status_text.warning(f"⚠️ Analysis complete but storage status unclear: {storage_type}")
+                            # Debug info
+                            with st.expander("🔍 Storage Details"):
+                                st.write(f"**Storage Type:** {storage_type}")
+                                st.write(f"**Success Count:** {storage_stats['success_count']}")
+                                st.write(f"**Error Count:** {storage_stats['error_count']}")
+                                st.write(f"**Total Count:** {storage_stats['total_count']}")
+                                st.write(f"**Status:** ⚠️ UNKNOWN STORAGE STATUS")
+                        
+                    except Exception as e:
                             st.write(f"🔥 DEBUG: Exception caught: {e}")
                             import traceback
                             st.write(f"🔥 DEBUG: Traceback: {traceback.format_exc()}")
-                            status_text.error(f"❌ Pinecone storage failed: {e}")
-                            # Fallback to regular analysis
-                            for article in collected_articles:
-                                sentiment_result = analyze_sentiment_sync(article['text'], st.session_state.sentiment_method)
-                                article.update({
-                                    'sentiment_score': sentiment_result.get('score'),
-                                    'sentiment_category': sentiment_result.get('category'),
-                                    'sentiment_method': st.session_state.sentiment_method,
-                                    'sentiment_justification': sentiment_result.get('justification')
-                                })
-                            st.session_state.articles = collected_articles
-                    else:
-                        # Regular analysis without Pinecone
-                        for article in collected_articles:
-                            sentiment_result = analyze_sentiment_sync(article['text'], st.session_state.sentiment_method)
-                            article.update({
-                                'sentiment_score': sentiment_result.get('score'),
-                                'sentiment_category': sentiment_result.get('category'),
-                                'sentiment_method': st.session_state.sentiment_method,
-                                'sentiment_justification': sentiment_result.get('justification')
-                            })
-                        st.session_state.articles = collected_articles
-                        status_text.success("✅ Analysis complete!")
+                            status_text.error(f"❌ Analysis and storage failed: {e}")
+                            st.session_state.articles = []
                 
                 metadata = {
                     'timestamp': datetime.now().isoformat(),
@@ -985,12 +909,7 @@ def main():
                 }
                 st.session_state.last_run_metadata = metadata
                 
-                if st.session_state.auto_save:
-                    save_success, save_message = save_to_master_file(st.session_state.articles, metadata)
-                    if save_success:
-                        status_text.success("✅ Results also saved to local file!")
-                    else:
-                        status_text.warning(f"⚠️ Could not save to local file: {save_message}")
+                # Auto-save functionality removed - all data stored in database
 
             except Exception as e:
                 status_text.error(f"❌ An error occurred: {e}")
@@ -1024,15 +943,12 @@ def main():
                         with col4:
                             storage_stats = analysis_results['analysis_summary']['storage_stats']
                             storage_type = analysis_results['analysis_summary']['storage_type']
-                            if storage_type == "analysis_only":
-                                st.metric("Storage Mode", "Analysis Only", help="Results analyzed but not stored in database")
-                            elif storage_type == "analysis_pinecone":
-                                st.metric("🔥 Analysis DB", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="🔥 FORCED into analysis-db")
+                            if storage_type == "analysis_db" or storage_type == "pinecone":
+                                st.metric("🔥 Analysis DB", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="🔥 Stored in analysis-db")
                             elif storage_type == "failed":
-                                st.metric("❌ Failed", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="❌ All databases failed")
+                                st.metric("❌ Storage Failed", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="❌ Failed to store in analysis-db")
                             else:
-                                db_name = "Database" if storage_type == "pinecone" else "Local"
-                                st.metric("Stored in DB", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help=f"Database: {db_name}")
+                                st.metric("⚠️ Unknown Status", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="⚠️ Storage status unclear")
                         
                         # Additional metrics row
                         col1, col2, col3, col4 = st.columns(4)
@@ -1221,92 +1137,31 @@ def main():
                             display_article_card(article)
                     
                     with pinecone_tab:
-                        storage_type = analysis_results['analysis_summary']['storage_type']
-                        if storage_type == "analysis_pinecone":
-                            st.subheader("🔥 Analysis Database Statistics (analysis-db)")
-                            try:
-                                from risk_monitor.utils.pinecone_db import AnalysisPineconeDB
-                                analysis_db = AnalysisPineconeDB()
-                                stats = analysis_db.index.describe_index_stats()
+                        st.subheader("🔥 Analysis Database Statistics (analysis-db)")
+                        try:
+                            from risk_monitor.utils.pinecone_db import AnalysisPineconeDB
+                            analysis_db = AnalysisPineconeDB()
+                            stats = analysis_db.index.describe_index_stats()
+                            
+                            if stats:
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("Total Vectors", stats.get('total_vector_count', 0))
+                                with col2:
+                                    st.metric("Index Dimension", stats.get('dimension', 0))
+                                with col3:
+                                    st.metric("🔥 Index Name", "analysis-db")
                                 
-                                if stats:
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric("Total Vectors", stats.get('total_vector_count', 0))
-                                    with col2:
-                                        st.metric("Index Dimension", stats.get('dimension', 0))
-                                    with col3:
-                                        st.metric("🔥 Index Name", "analysis-db")
-                                    
-                                    # Show storage results
-                                    storage_stats = analysis_results['analysis_summary']['storage_stats']
-                                    st.success(f"🔥 SUCCESSFULLY FORCED {storage_stats['success_count']} out of {storage_stats['total_count']} articles into Analysis Database")
-                                    
-                                    if storage_stats['error_count'] > 0:
-                                        st.warning(f"⚠️ {storage_stats['error_count']} articles failed to force into analysis-db")
-                                else:
-                                    st.warning("Could not retrieve Analysis Database statistics")
-                            except Exception as e:
-                                st.error(f"Error retrieving Analysis Database stats: {e}")
-                        elif storage_type == "pinecone":
-                            st.subheader("Database Statistics (sentiment-db)")
-                            try:
-                                from risk_monitor.utils.pinecone_db import PineconeDB
-                                pinecone_db = PineconeDB()
-                                stats = pinecone_db.index.describe_index_stats()
+                                # Show storage results
+                                storage_stats = analysis_results['analysis_summary']['storage_stats']
+                                st.success(f"🔥 {storage_stats['success_count']} out of {storage_stats['total_count']} articles stored in Analysis Database")
                                 
-                                if stats:
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric("Total Vectors", stats.get('total_vector_count', 0))
-                                    with col2:
-                                        st.metric("Index Dimension", stats.get('dimension', 0))
-                                    with col3:
-                                        st.metric("Index Fullness", f"{stats.get('index_fullness', 0):.2%}")
-                                    
-                                    # Show storage results
-                                    storage_stats = analysis_results['analysis_summary']['storage_stats']
-                                    st.success(f"✅ Successfully stored {storage_stats['success_count']} out of {storage_stats['total_count']} articles")
-                                    
-                                    if storage_stats['error_count'] > 0:
-                                        st.warning(f"⚠️ {storage_stats['error_count']} articles failed to store")
-                                else:
-                                    st.warning("Could not retrieve Pinecone statistics")
-                            except Exception as e:
-                                st.error(f"Error retrieving Pinecone stats: {e}")
-                        else:
-                            st.subheader("Local Storage Statistics")
-                            try:
-                                from risk_monitor.utils.local_storage import LocalStorage
-                                local_storage = LocalStorage()
-                                stats = local_storage.get_storage_stats()
-                                
-                                if stats:
-                                    col1, col2, col3 = st.columns(3)
-                                    with col1:
-                                        st.metric("Total Articles", stats.get('total_articles', 0))
-                                    with col2:
-                                        st.metric("Index Entries", stats.get('index_entries', 0))
-                                    with col3:
-                                        st.metric("Storage Path", "Local")
-                                    
-                                    # Show storage results
-                                    storage_stats = analysis_results['analysis_summary']['storage_stats']
-                                    st.success(f"✅ Successfully stored {storage_stats['success_count']} out of {storage_stats['total_count']} articles locally")
-                                    
-                                    if storage_stats['error_count'] > 0:
-                                        st.warning(f"⚠️ {storage_stats['error_count']} articles failed to store")
-                                    
-                                    # Show sentiment distribution
-                                    sentiment_dist = stats.get('sentiment_distribution', {})
-                                    if sentiment_dist:
-                                        st.subheader("Local Storage Sentiment Distribution")
-                                        for category, count in sentiment_dist.items():
-                                            st.write(f"**{category}:** {count}")
-                                else:
-                                    st.warning("Could not retrieve local storage statistics")
-                            except Exception as e:
-                                st.error(f"Error retrieving local storage stats: {e}")
+                                if storage_stats['error_count'] > 0:
+                                    st.warning(f"⚠️ {storage_stats['error_count']} articles failed to store")
+                            else:
+                                st.warning("Could not retrieve Analysis Database statistics")
+                        except Exception as e:
+                            st.error(f"Error retrieving Analysis Database stats: {e}")
                 else:
                     # Fallback to simple article display
                     for article in st.session_state.articles:
