@@ -553,37 +553,72 @@ def filter_articles_by_keywords(articles: List[Dict], keywords: str) -> List[Dic
 def load_scheduler_config():
     """Load scheduler configuration from JSON file."""
     config_file = "scheduler_config.json"
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            st.error(f"Error loading scheduler config: {e}")
-    
-    # Return default configuration
-    return {
-        "run_time": "08:00",
-        "timezone": "US/Eastern", 
-        "articles_per_entity": 5,
-        "entities": ["NVDA", "NVIDIA CORPORATION", "MSFT", "MICROSOFT CORP", "AAPL", "APPLE INC.", "AVGO", "BROADCOM INC.", "META", "META PLATFORMS INC", "AMZN", "AMAZON.COM INC"],
-        "keywords": ["risk", "financial", "market", "crisis", "volatility", "earnings", "revenue", "stock", "trading", "investment"],
-        "use_openai": True,
-        "email_enabled": True,
-        "email_recipients": ["be2020se709@gces.edu.np"],
-        "enable_pinecone_storage": True,
-        "enable_dual_sentiment": True,
-        "enable_detailed_email": True
-    }
+    try:
+        with open(config_file, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"Error loading scheduler config: {e}")
+        return {}
 
 def save_scheduler_config(config):
     """Save scheduler configuration to JSON file."""
     config_file = "scheduler_config.json"
     try:
-        with open(config_file, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=4)
+        with open(config_file, 'w') as f:
+            json.dump(config, f, indent=4)
         return True, "Configuration saved successfully!"
     except Exception as e:
         return False, f"Error saving configuration: {e}"
+
+def restart_scheduler():
+    """Restart the scheduler by stopping and starting it."""
+    try:
+        import subprocess
+        import time
+        
+        # Stop existing scheduler
+        stop_result = subprocess.run(['pkill', '-f', 'run_data_refresh.py'], capture_output=True, text=True)
+        
+        # Wait a moment for processes to stop
+        time.sleep(2)
+        
+        # Start new scheduler using proper nohup syntax
+        start_result = subprocess.run('nohup ./run_scheduler_with_email.sh > scheduler_background.log 2>&1 &', 
+                                    capture_output=True, text=True, shell=True)
+        
+        if start_result.returncode == 0:
+            return True, "Scheduler restarted successfully!"
+        else:
+            return False, f"Error starting scheduler: {start_result.stderr}"
+    except Exception as e:
+        return False, f"Error restarting scheduler: {e}"
+
+def stop_scheduler():
+    """Stop the scheduler."""
+    try:
+        import subprocess
+        result = subprocess.run(['pkill', '-f', 'run_data_refresh.py'], capture_output=True, text=True)
+        if result.returncode == 0:
+            return True, "Scheduler stopped successfully!"
+        else:
+            return False, "No scheduler process found to stop."
+    except Exception as e:
+        return False, f"Error stopping scheduler: {e}"
+
+def start_scheduler():
+    """Start the scheduler."""
+    try:
+        import subprocess
+        result = subprocess.run('nohup ./run_scheduler_with_email.sh > scheduler_background.log 2>&1 &', 
+                              capture_output=True, text=True, shell=True)
+        if result.returncode == 0:
+            return True, "Scheduler started successfully!"
+        else:
+            return False, f"Error starting scheduler: {result.stderr}"
+    except Exception as e:
+        return False, f"Error starting scheduler: {e}"
+
+
 
 def update_email_subscription(enabled: bool):
     """Update email subscription status."""
@@ -609,6 +644,13 @@ def get_scheduler_status():
         result = subprocess.run(['pgrep', '-f', 'run_data_refresh.py'], capture_output=True, text=True)
         is_running = result.returncode == 0 and result.stdout.strip()
         process_ids = result.stdout.strip().split('\n') if is_running else []
+        
+        # Also check for the shell script process
+        shell_result = subprocess.run(['pgrep', '-f', 'run_scheduler_with_email.sh'], capture_output=True, text=True)
+        shell_running = shell_result.returncode == 0 and shell_result.stdout.strip()
+        
+        # Scheduler is running if either process is active
+        is_running = is_running or shell_running
         
         # Get additional status information
         status_info = {
@@ -833,7 +875,7 @@ def main():
                 total_steps = len(queries) * st.session_state.num_articles
                 current_step = 0
                 
-                # Always store in analysis-db (News Analysis specific index)
+                # Always store in sentiment-db (unified database)
                 for i, query in enumerate(queries):
                     status_text.info(f"Collecting news for: **{query}**")
                     articles = news_collector.collect_articles(query, st.session_state.num_articles)
@@ -844,15 +886,15 @@ def main():
                 
                 # Analyze articles with comprehensive analysis
                 if collected_articles:
-                    status_text.info("Analyzing articles and storing in analysis-db...")
+                    status_text.info("Analyzing articles and storing in sentiment-db...")
                     
-                    # Always store in analysis-db
+                    # Always store in sentiment-db
                     try:
-                        # Use comprehensive analysis with storage in analysis-db
+                        # Use comprehensive analysis with storage in sentiment-db
                         analysis_results = analyzer.analyze_and_store_in_pinecone(
                             collected_articles, 
                             st.session_state.sentiment_method,
-                            store_in_db=True  # Always store in analysis-db
+                            store_in_db=True  # Always store in sentiment-db
                         )
                         
                         # Extract individual article results for display
@@ -874,23 +916,23 @@ def main():
                         # Store comprehensive results
                         st.session_state.last_analysis_results = analysis_results
                         
-                        # Show storage statistics (always analysis-db)
+                        # Show storage statistics (always sentiment-db)
                         storage_stats = analysis_results['analysis_summary']['storage_stats']
                         storage_type = analysis_results['analysis_summary']['storage_type']
                         
 
                         
                         if storage_type == "analysis_db" or storage_type == "pinecone":
-                            status_text.success(f"🔥 Analysis complete! {storage_stats['success_count']} articles stored in Analysis Database (analysis-db).")
+                            status_text.success(f"🔥 Analysis complete! {storage_stats['success_count']} articles stored in Sentiment Database (sentiment-db).")
                             # Debug info
-                            with st.expander("🔍 Analysis Database Details"):
-                                st.write(f"**Database:** analysis-db")
+                            with st.expander("🔍 Sentiment Database Details"):
+                                st.write(f"**Database:** sentiment-db")
                                 st.write(f"**Success Count:** {storage_stats['success_count']}")
                                 st.write(f"**Error Count:** {storage_stats['error_count']}")
                                 st.write(f"**Total Count:** {storage_stats['total_count']}")
                                 st.write(f"**Status:** 🔥 SUCCESSFULLY STORED")
                         elif storage_type == "failed":
-                            status_text.error(f"❌ CRITICAL ERROR: Failed to store articles in analysis-db!")
+                            status_text.error(f"❌ CRITICAL ERROR: Failed to store articles in sentiment-db!")
                             # Debug info
                             with st.expander("🔍 Error Details"):
                                 st.write(f"**Storage Type:** {storage_type}")
@@ -956,9 +998,9 @@ def main():
                             storage_stats = analysis_results['analysis_summary']['storage_stats']
                             storage_type = analysis_results['analysis_summary']['storage_type']
                             if storage_type == "analysis_db" or storage_type == "pinecone":
-                                st.metric("Analysis DB", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Stored in analysis-db")
+                                st.metric("Sentiment DB", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Stored in sentiment-db")
                             elif storage_type == "failed":
-                                st.metric("Storage Failed", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Failed to store in analysis-db")
+                                st.metric("Storage Failed", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Failed to store in sentiment-db")
                             else:
                                 st.metric("Unknown Status", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Storage status unclear")
                         
@@ -1694,14 +1736,52 @@ def main():
             
             # Scheduler control information
             st.markdown("**Scheduler Controls:**")
+            
+            # Create columns for control buttons
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                if st.button("🔄 Restart Scheduler", type="primary", help="Stop and restart the scheduler with current configuration"):
+                    with st.spinner("Restarting scheduler..."):
+                        success, message = restart_scheduler()
+                        if success:
+                            st.success(message)
+                            time.sleep(1)  # Brief pause to let process start
+                            st.rerun()
+                        else:
+                            st.error(message)
+            
+            with col2:
+                if st.button("▶️ Start Scheduler", type="secondary", help="Start the scheduler if it's not running"):
+                    with st.spinner("Starting scheduler..."):
+                        success, message = start_scheduler()
+                        if success:
+                            st.success(message)
+                            time.sleep(1)  # Brief pause to let process start
+                            st.rerun()
+                        else:
+                            st.error(message)
+            
+            with col3:
+                if st.button("⏹️ Stop Scheduler", type="secondary", help="Stop the currently running scheduler"):
+                    with st.spinner("Stopping scheduler..."):
+                        success, message = stop_scheduler()
+                        if success:
+                            st.success(message)
+                            time.sleep(1)  # Brief pause to let process stop
+                            st.rerun()
+                        else:
+                            st.error(message)
+            
+            with col4:
+                if st.button("🔄 Refresh Status", type="secondary", help="Refresh scheduler status"):
+                    st.rerun()
+            
             st.info("""
-            **To start the scheduler:** `nohup ./run_scheduler_with_email.sh > scheduler_background.log 2>&1 &`
-            
-            **To stop the scheduler:** `pkill -f "run_data_refresh.py"`
-            
-            **To run immediately:** `./run_scheduler_with_email.sh --run-now`
-            
-            **Note:** Daily news collection and analysis will continue regardless of email subscription status.
+            **Note:** 
+            - Restarting the scheduler will apply your configuration changes immediately
+            - Daily news collection and analysis will continue regardless of email subscription status
+            - The scheduler runs in the background and will automatically restart on system reboot
             """)
             
             # Log monitoring
@@ -1727,7 +1807,12 @@ def main():
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            st.info("Click 'Save Configuration' to apply your changes to the scheduler.")
+            st.info("""
+            💡 **Configuration Changes:**
+            - Click 'Save Configuration' to save your changes
+            - **Important:** After changing entities or major settings, use 'Restart Scheduler' to apply changes
+            - The scheduler will continue running with old configuration until restarted
+            """)
         
         with col2:
             if st.button("💾 Save Configuration", type="primary"):

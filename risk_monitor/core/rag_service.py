@@ -8,7 +8,7 @@ import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from openai import OpenAI
-from risk_monitor.utils.pinecone_db import AnalysisPineconeDB
+from risk_monitor.utils.pinecone_db import PineconeDB
 from risk_monitor.config.settings import Config
 
 logger = logging.getLogger(__name__)
@@ -18,10 +18,10 @@ class RAGService:
     
     def __init__(self):
         self.config = Config()
-        self.pinecone_db = AnalysisPineconeDB()
+        self.pinecone_db = PineconeDB()
         # Use new OpenAI API
         self.client = OpenAI(api_key=self.config.get_openai_api_key())
-        print("🔧 RAG Service initialized with OpenAI client and AnalysisPineconeDB")
+        print("🔧 RAG Service initialized with OpenAI client and PineconeDB")
         
     def search_articles(self, query: str, top_k: int = 50, entity_filter: str = None, date_filter: str = None) -> List[Dict]:
         """Search for relevant articles in Pinecone database with optional filtering"""

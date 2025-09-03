@@ -3,18 +3,15 @@
     "timezone": "US/Eastern",
     "articles_per_entity": 5,
     "entities": [
-        "NVDA",
-        "NVIDIA CORPORATION",
-        "MSFT",
-        "MICROSOFT CORP",
-        "AAPL",
-        "APPLE INC.",
-        "AVGO",
-        "BROADCOM INC.",
-        "META",
-        "META PLATFORMS INC",
-        "AMZN",
-        "AMAZON.COM INC"
+        "Alliance Bernstein (AB)",
+        "Northern Trust Corporation",
+        "Goldman Sachs AM (GSAM)",
+        "Carlyle Group",
+        "Blackstone",
+        "Ares Asset Management",
+        "Adage Capital (ADG)",
+        "HPV Investment Partners",
+        "Man Numeric (NUM)"
     ],
     "keywords": [
         "risk",

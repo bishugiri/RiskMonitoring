@@ -18,7 +18,7 @@ from risk_monitor.utils.sentiment import analyze_sentiment_sync
 
 # Try to import PineconeDB, but handle gracefully if not available
 try:
-    from risk_monitor.utils.pinecone_db import PineconeDB, AnalysisPineconeDB
+    from risk_monitor.utils.pinecone_db import PineconeDB
     PINECONE_AVAILABLE = True
 except ImportError:
     PINECONE_AVAILABLE = False
@@ -253,13 +253,9 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             
             # Create comprehensive analysis result
             comprehensive_analysis = {
-                'article_metadata': risk_analysis['article_metadata'],
                 'sentiment_analysis': sentiment_analysis,
                 'risk_analysis': risk_analysis,
-                'analysis_method': {
-                    'sentiment': sentiment_method,
-                    'risk': 'llm_advanced'
-                },
+                'sentiment_method': sentiment_method,
                 'risk_sentiment_correlation': self._analyze_risk_sentiment_correlation(
                     risk_analysis, sentiment_analysis
                 )
@@ -339,12 +335,11 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             
             if PINECONE_AVAILABLE:
                 try:
-                    # Use AnalysisPineconeDB for News Analysis (analysis-db) - MATCHING SCHEDULER FORMAT
-                    self.logger.info(f"🔥 STARTING STORAGE in analysis-db for {len(articles)} articles")
-                    from risk_monitor.utils.pinecone_db import AnalysisPineconeDB
+                    # Use PineconeDB for News Analysis (sentiment-db) - UNIFIED DATABASE
+                    self.logger.info(f"🔥 STARTING STORAGE in sentiment-db for {len(articles)} articles")
                     
-                    analysis_db = AnalysisPineconeDB()
-                    self.logger.info("🔥 AnalysisPineconeDB initialized successfully")
+                    analysis_db = PineconeDB()
+                    self.logger.info("🔥 PineconeDB initialized successfully")
                     
                     # Create analysis results in the same format as scheduler
                     analysis_results_for_storage = []
@@ -358,14 +353,14 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                     
                     storage_stats = analysis_db.store_articles_batch(articles, analysis_results_for_storage)
                     
-                    storage_type = "analysis_db"
-                    self.logger.info(f"🔥 SUCCESSFULLY STORED {storage_stats['success_count']} articles in analysis-db")
+                    storage_type = "database"
+                    self.logger.info(f"🔥 SUCCESSFULLY STORED {storage_stats['success_count']} articles in sentiment-db")
                     
                     if storage_stats['error_count'] > 0:
-                        self.logger.warning(f"⚠️ {storage_stats['error_count']} articles failed to store in analysis-db")
+                        self.logger.warning(f"⚠️ {storage_stats['error_count']} articles failed to store in sentiment-db")
                         
                 except Exception as e:
-                    self.logger.error(f"🔥 CRITICAL ERROR: analysis-db storage failed: {e}")
+                    self.logger.error(f"🔥 CRITICAL ERROR: sentiment-db storage failed: {e}")
                     import traceback
                     self.logger.error(f"🔥 CRITICAL ERROR: Full traceback: {traceback.format_exc()}")
                     storage_type = "failed"
@@ -392,19 +387,47 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             
         except Exception as e:
             self.logger.error(f"Error in advanced analysis and storage: {e}")
-            raise
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Return a safe fallback result instead of raising
+            return {
+                'analysis_summary': {
+                    'total_articles': len(articles),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                    'sentiment_method': sentiment_method,
+                    'risk_method': 'llm_advanced',
+                    'storage_type': 'failed',
+                    'storage_stats': {'success_count': 0, 'error_count': len(articles), 'total_count': len(articles)}
+                },
+                'sentiment_summary': {'average_sentiment_score': 0, 'sentiment_distribution': {}, 'positive_count': 0, 'negative_count': 0, 'neutral_count': 0},
+                'risk_summary': {'average_risk_score': 0, 'average_confidence': 0, 'risk_distribution': {'low_risk': 0, 'medium_risk': 0, 'high_risk': 0}, 'category_averages': {}, 'top_risk_categories': []},
+                'correlation_summary': {'average_alignment_score': 0, 'correlation_distribution': {}, 'well_aligned_count': 0, 'risk_higher_count': 0, 'sentiment_higher_count': 0},
+                'source_summary': {},
+                'individual_analyses': []
+            }
     
     def _calculate_advanced_risk_summary(self, analysis_results: List[Dict]) -> Dict:
         """Calculate comprehensive risk summary from advanced analysis"""
-        risk_scores = [result['risk_analysis']['overall_risk_score'] for result in analysis_results]
-        confidence_scores = [result['risk_analysis']['risk_confidence'] for result in analysis_results]
+        risk_scores = []
+        confidence_scores = []
+        
+        # Safely extract risk scores
+        for result in analysis_results:
+            if 'risk_analysis' in result:
+                risk_analysis = result['risk_analysis']
+                risk_scores.append(risk_analysis.get('overall_risk_score', 5.0))
+                confidence_scores.append(risk_analysis.get('risk_confidence', 0.5))
         
         # Calculate risk category averages
         category_averages = {}
         for category in ['market_risk', 'economic_risk', 'geopolitical_risk', 'sector_risk', 
                         'company_risk', 'regulatory_risk', 'operational_risk', 'financial_risk']:
-            scores = [result['risk_analysis']['risk_categories'][category]['score'] 
-                     for result in analysis_results]
+            scores = []
+            for result in analysis_results:
+                if 'risk_analysis' in result and 'risk_categories' in result['risk_analysis']:
+                    category_data = result['risk_analysis']['risk_categories'].get(category, {})
+                    scores.append(category_data.get('score', 5.0))
             category_averages[category] = sum(scores) / len(scores) if scores else 0
         
         return {
@@ -421,10 +444,13 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
     
     def _calculate_correlation_summary(self, analysis_results: List[Dict]) -> Dict:
         """Calculate summary of risk-sentiment correlations"""
-        alignment_scores = [result['risk_sentiment_correlation']['alignment_score'] 
-                           for result in analysis_results]
-        correlation_types = [result['risk_sentiment_correlation']['correlation_type'] 
-                           for result in analysis_results]
+        alignment_scores = []
+        correlation_types = []
+        
+        for result in analysis_results:
+            if 'risk_sentiment_correlation' in result:
+                alignment_scores.append(result['risk_sentiment_correlation']['alignment_score'])
+                correlation_types.append(result['risk_sentiment_correlation']['correlation_type'])
         
         type_counts = Counter(correlation_types)
         
@@ -438,8 +464,15 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
     
     def _calculate_sentiment_summary(self, analysis_results: List[Dict]) -> Dict:
         """Calculate sentiment summary across all articles"""
-        sentiment_scores = [result['sentiment_analysis']['score'] for result in analysis_results]
-        sentiment_categories = [result['sentiment_analysis']['category'] for result in analysis_results]
+        sentiment_scores = []
+        sentiment_categories = []
+        
+        # Safely extract sentiment data
+        for result in analysis_results:
+            if 'sentiment_analysis' in result:
+                sentiment_analysis = result['sentiment_analysis']
+                sentiment_scores.append(sentiment_analysis.get('score', 0))
+                sentiment_categories.append(sentiment_analysis.get('category', 'Neutral'))
         
         category_counts = Counter(sentiment_categories)
         
@@ -456,7 +489,16 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
         source_analysis = {}
         
         for article, analysis in zip(articles, analysis_results):
-            source = analysis['risk_analysis']['article_metadata']['source']
+            # Safely extract source with fallback
+            try:
+                if 'risk_analysis' in analysis and 'article_metadata' in analysis['risk_analysis']:
+                    source = analysis['risk_analysis']['article_metadata']['source']
+                else:
+                    # Fallback: extract source from article URL
+                    source = self.extract_source(article.get('url', ''))
+            except (KeyError, TypeError):
+                # Fallback: extract source from article URL
+                source = self.extract_source(article.get('url', ''))
             
             if source not in source_analysis:
                 source_analysis[source] = {
@@ -470,9 +512,18 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                 }
             
             source_analysis[source]['article_count'] += 1
-            source_analysis[source]['total_sentiment_score'] += analysis['sentiment_analysis']['score']
-            source_analysis[source]['total_risk_score'] += analysis['risk_analysis']['overall_risk_score']
-            source_analysis[source]['total_confidence'] += analysis['risk_analysis']['risk_confidence']
+            
+            # Safely add sentiment score
+            sentiment_score = analysis.get('sentiment_analysis', {}).get('score', 0)
+            source_analysis[source]['total_sentiment_score'] += sentiment_score
+            
+            # Safely add risk score
+            risk_score = analysis.get('risk_analysis', {}).get('overall_risk_score', 5.0)
+            source_analysis[source]['total_risk_score'] += risk_score
+            
+            # Safely add confidence score
+            confidence_score = analysis.get('risk_analysis', {}).get('risk_confidence', 0.5)
+            source_analysis[source]['total_confidence'] += confidence_score
         
         # Calculate averages
         for source in source_analysis:
@@ -547,23 +598,73 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
     # Legacy methods for backward compatibility
     def analyze_articles(self, articles: List[Dict]) -> Dict:
         """Legacy method - now uses advanced LLM analysis"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(self.analyze_and_store_advanced(articles))
-            return result
-        finally:
-            loop.close()
+            # Check if we're already in an event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an async context, use asyncio.create_task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self.analyze_and_store_advanced(articles))
+                    return future.result()
+            except RuntimeError:
+                # No event loop running, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(self.analyze_and_store_advanced(articles))
+                    return result
+                finally:
+                    loop.close()
+        except Exception as e:
+            self.logger.error(f"Error in analyze_articles: {e}")
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Return a safe fallback result instead of raising
+            return {
+                'analysis_summary': {
+                    'total_articles': len(articles),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                    'sentiment_method': 'llm',
+                    'risk_method': 'llm_advanced',
+                    'storage_type': 'failed',
+                    'storage_stats': {'success_count': 0, 'error_count': len(articles), 'total_count': len(articles)}
+                },
+                'sentiment_summary': {'average_sentiment_score': 0, 'sentiment_distribution': {}, 'positive_count': 0, 'negative_count': 0, 'neutral_count': 0},
+                'risk_summary': {'average_risk_score': 0, 'average_confidence': 0, 'risk_distribution': {'low_risk': 0, 'medium_risk': 0, 'high_risk': 0}, 'category_averages': {}, 'top_risk_categories': []},
+                'correlation_summary': {'average_alignment_score': 0, 'correlation_distribution': {}, 'well_aligned_count': 0, 'risk_higher_count': 0, 'sentiment_higher_count': 0},
+                'source_summary': {},
+                'individual_analyses': []
+            }
     
     def analyze_articles_with_sentiment(self, articles: List[Dict], sentiment_method: str = 'llm') -> List[Dict]:
         """Legacy method - now uses advanced LLM analysis"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(self.analyze_articles_with_advanced_risk(articles, sentiment_method))
-            return result
-        finally:
-            loop.close()
+            # Check if we're already in an event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an async context, use asyncio.create_task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, self.analyze_articles_with_advanced_risk(articles, sentiment_method))
+                    return future.result()
+            except RuntimeError:
+                # No event loop running, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(self.analyze_articles_with_advanced_risk(articles, sentiment_method))
+                    return result
+                finally:
+                    loop.close()
+        except Exception as e:
+            self.logger.error(f"Error in analyze_articles_with_sentiment: {e}")
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Return a safe fallback result instead of raising
+            return []
     
     def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'llm', store_in_db: bool = True) -> Dict[str, Any]:
         """
@@ -573,22 +674,45 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             sentiment_method: Method for sentiment analysis ('llm' or 'lexicon')
             store_in_db: Whether to store results in database (default: True)
         """
-        if store_in_db:
-            # Use the advanced method that includes FORCED INSERTION into analysis-db
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(self.analyze_and_store_advanced(articles, sentiment_method))
-                return result
-            finally:
-                loop.close()
-        else:
-            # Analyze without storing in database
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                # Perform analysis without storage
-                analysis_results = loop.run_until_complete(self.analyze_articles_with_advanced_risk(articles, sentiment_method))
+        try:
+            if store_in_db:
+                # Use the advanced method that includes storage in sentiment-db
+                # Check if we're already in an event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    # We're in an async context, use asyncio.create_task
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self.analyze_and_store_advanced(articles, sentiment_method))
+                        return future.result()
+                except RuntimeError:
+                    # No event loop running, create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        result = loop.run_until_complete(self.analyze_and_store_advanced(articles, sentiment_method))
+                        return result
+                    finally:
+                        loop.close()
+            else:
+                # Analyze without storing in database
+                # Check if we're already in an event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    # We're in an async context, use asyncio.create_task
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, self.analyze_articles_with_advanced_risk(articles, sentiment_method))
+                        analysis_results = future.result()
+                except RuntimeError:
+                    # No event loop running, create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        # Perform analysis without storage
+                        analysis_results = loop.run_until_complete(self.analyze_articles_with_advanced_risk(articles, sentiment_method))
+                    finally:
+                        loop.close()
                 
                 # Create summary without storage stats
                 summary = {
@@ -608,8 +732,27 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                 }
                 
                 return summary
-            finally:
-                loop.close()
+        except Exception as e:
+            self.logger.error(f"Error in analyze_and_store_in_pinecone: {e}")
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            
+            # Return a safe fallback result instead of raising
+            return {
+                'analysis_summary': {
+                    'total_articles': len(articles),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                    'sentiment_method': sentiment_method,
+                    'risk_method': 'llm_advanced',
+                    'storage_type': 'failed',
+                    'storage_stats': {'success_count': 0, 'error_count': len(articles), 'total_count': len(articles)}
+                },
+                'sentiment_summary': {'average_sentiment_score': 0, 'sentiment_distribution': {}, 'positive_count': 0, 'negative_count': 0, 'neutral_count': 0},
+                'risk_summary': {'average_risk_score': 0, 'average_confidence': 0, 'risk_distribution': {'low_risk': 0, 'medium_risk': 0, 'high_risk': 0}, 'category_averages': {}, 'top_risk_categories': []},
+                'correlation_summary': {'average_alignment_score': 0, 'correlation_distribution': {}, 'well_aligned_count': 0, 'risk_higher_count': 0, 'sentiment_higher_count': 0},
+                'source_summary': {},
+                'individual_analyses': []
+            }
 
     async def analyze_articles_async(self, articles: List[Dict], sentiment_method: str = 'llm') -> List[Dict]:
         """
@@ -653,10 +796,14 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             # Perform risk analysis
             risk_result = await self.analyze_article_risk_llm(article)
             
+            # Add risk-sentiment correlation analysis
+            correlation_result = self._analyze_risk_sentiment_correlation(risk_result, sentiment_result)
+            
             return {
                 'sentiment_analysis': sentiment_result,
                 'risk_analysis': risk_result,
-                'sentiment_method': sentiment_method
+                'sentiment_method': sentiment_method,
+                'risk_sentiment_correlation': correlation_result
             }
         except Exception as e:
             self.logger.error(f"Error in async article analysis: {e}")
@@ -718,10 +865,14 @@ Provide sentiment analysis in JSON format:
         """
         Fallback analysis when async processing fails
         """
+        sentiment_analysis = self._fallback_sentiment_analysis(article)
+        risk_analysis = self._fallback_risk_analysis(article)
+        
         return {
-            'sentiment_analysis': self._fallback_sentiment_analysis(article),
-            'risk_analysis': self._fallback_risk_analysis(article),
-            'sentiment_method': sentiment_method
+            'sentiment_analysis': sentiment_analysis,
+            'risk_analysis': risk_analysis,
+            'sentiment_method': sentiment_method,
+            'risk_sentiment_correlation': self._analyze_risk_sentiment_correlation(risk_analysis, sentiment_analysis)
         }
     
     def _fallback_sentiment_analysis(self, article: Dict) -> Dict:

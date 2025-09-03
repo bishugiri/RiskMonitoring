@@ -215,12 +215,23 @@ def analyze_sentiment_sync(text: str, method: str = 'llm', openai_api_key: str =
     elif method == 'llm' and openai_api_key:
         import asyncio
         try:
-            # Run the async function in a synchronous context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(analyze_sentiment_llm(text, openai_api_key))
-            loop.close()
-            return result
+            # Check if we're already in an event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an async context, use asyncio.create_task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, analyze_sentiment_llm(text, openai_api_key))
+                    return future.result()
+            except RuntimeError:
+                # No event loop running, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(analyze_sentiment_llm(text, openai_api_key))
+                    return result
+                finally:
+                    loop.close()
         except Exception as e:
             # Fallback to lexicon-based analysis with error logging
             import logging
