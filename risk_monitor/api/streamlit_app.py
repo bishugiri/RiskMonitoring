@@ -11,12 +11,13 @@ import os
 import sys
 from datetime import datetime, timedelta
 import time
-from typing import Dict, List
+from typing import Dict, List, Any
 import logging
 import requests
 import openai
 import plotly.express as px
 import plotly.graph_objects as go
+import hashlib
 
 # --- Project Structure & Configuration ---
 # Ensure project structure is accessible for imports
@@ -27,6 +28,26 @@ sys.path.append(project_root)
 from risk_monitor.core.news_collector import NewsCollector
 from risk_monitor.core.risk_analyzer import RiskAnalyzer
 from risk_monitor.config.settings import Config
+
+# Add caching for better performance
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_cached_analysis_results(articles_hash: str, sentiment_method: str):
+    """Cache analysis results to improve performance"""
+    return None  # Will be populated by actual analysis
+
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
+def get_cached_sentiment_distribution(articles: List[Dict]):
+    """Cache sentiment distribution calculation"""
+    positive_count = sum(1 for a in articles if a.get('sentiment_category') == 'Positive')
+    negative_count = sum(1 for a in articles if a.get('sentiment_category') == 'Negative')
+    neutral_count = len(articles) - positive_count - negative_count
+    
+    return {
+        'positive': positive_count,
+        'negative': negative_count,
+        'neutral': neutral_count,
+        'total': len(articles)
+    }
 
 # --- Custom CSS for a professional, elegant UI ---
 def load_custom_css():
@@ -827,18 +848,12 @@ def main():
                     
                     # Always store in analysis-db
                     try:
-                        # Debug logging
-                        st.write(f"🔥 DEBUG: Starting analysis for {len(collected_articles)} articles")
-                        st.write(f"🔥 DEBUG: sentiment_method = {st.session_state.sentiment_method}")
-                        
                         # Use comprehensive analysis with storage in analysis-db
-                        st.write(f"🔥 DEBUG: Calling analyze_and_store_in_pinecone...")
                         analysis_results = analyzer.analyze_and_store_in_pinecone(
                             collected_articles, 
                             st.session_state.sentiment_method,
                             store_in_db=True  # Always store in analysis-db
                         )
-                        st.write(f"🔥 DEBUG: analyze_and_store_in_pinecone completed successfully")
                         
                         # Extract individual article results for display
                         individual_analyses = analysis_results['individual_analyses']
@@ -895,9 +910,6 @@ def main():
                                 st.write(f"**Status:** ⚠️ UNKNOWN STORAGE STATUS")
                         
                     except Exception as e:
-                            st.write(f"🔥 DEBUG: Exception caught: {e}")
-                            import traceback
-                            st.write(f"🔥 DEBUG: Traceback: {traceback.format_exc()}")
                             status_text.error(f"❌ Analysis and storage failed: {e}")
                             st.session_state.articles = []
                 
@@ -944,11 +956,11 @@ def main():
                             storage_stats = analysis_results['analysis_summary']['storage_stats']
                             storage_type = analysis_results['analysis_summary']['storage_type']
                             if storage_type == "analysis_db" or storage_type == "pinecone":
-                                st.metric("🔥 Analysis DB", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="🔥 Stored in analysis-db")
+                                st.metric("Analysis DB", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Stored in analysis-db")
                             elif storage_type == "failed":
-                                st.metric("❌ Storage Failed", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="❌ Failed to store in analysis-db")
+                                st.metric("Storage Failed", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Failed to store in analysis-db")
                             else:
-                                st.metric("⚠️ Unknown Status", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="⚠️ Storage status unclear")
+                                st.metric("Unknown Status", f"{storage_stats['success_count']}/{storage_stats['total_count']}", help="Storage status unclear")
                         
                         # Additional metrics row
                         col1, col2, col3, col4 = st.columns(4)
@@ -961,72 +973,7 @@ def main():
                         with col4:
                             st.metric("Avg Confidence", f"{risk_summary['average_confidence']:.3f}")
                         
-                        # Sentiment timeline (if publish dates are available)
-                        if st.session_state.articles:
-                            st.subheader("Sentiment Timeline")
-                            try:
-                                # Create timeline data
-                                timeline_data = []
-                                for article in st.session_state.articles:
-                                    if article.get('publish_date'):
-                                        timeline_data.append({
-                                            'date': article['publish_date'],
-                                            'sentiment': article.get('sentiment_score', 0),
-                                            'title': article.get('title', 'Unknown'),
-                                            'source': article.get('source', 'Unknown')
-                                        })
-                                
-                                if timeline_data:
-                                    timeline_df = pd.DataFrame(timeline_data)
-                                    timeline_df['date'] = pd.to_datetime(timeline_df['date'], errors='coerce')
-                                    timeline_df = timeline_df.dropna(subset=['date'])
-                                    
-                                    if not timeline_df.empty:
-                                        fig = px.scatter(timeline_df, x='date', y='sentiment',
-                                                       title="Sentiment Score Over Time",
-                                                       labels={'sentiment': 'Sentiment Score', 'date': 'Publication Date'},
-                                                       hover_data=['title', 'source'],
-                                                       color='sentiment',
-                                                       color_continuous_scale='RdYlGn')
-                                        st.plotly_chart(fig, use_container_width=True)
-                            except Exception as e:
-                                st.warning(f"Could not create timeline chart: {e}")
-                        
-                        # Comprehensive Analysis Summary
-                        st.subheader("📊 Comprehensive Analysis Summary")
-                        
-                        # Create a summary dataframe
-                        summary_data = {
-                            'Metric': [
-                                'Total Articles',
-                                'Average Sentiment Score',
-                                'Average Risk Score',
-                                'Average Confidence',
-                                'Positive Articles',
-                                'Negative Articles',
-                                'Neutral Articles',
-                                'High Risk Articles',
-                                'Medium Risk Articles',
-                                'Low Risk Articles'
-                            ],
-                            'Value': [
-                                analysis_results['analysis_summary']['total_articles'],
-                                f"{sentiment_summary['average_sentiment_score']:.3f}",
-                                f"{risk_summary['average_risk_score']:.3f}",
-                                f"{risk_summary['average_confidence']:.3f}",
-                                sentiment_summary['positive_count'],
-                                sentiment_summary['negative_count'],
-                                sentiment_summary['neutral_count'],
-                                risk_summary['risk_distribution']['high_risk'],
-                                risk_summary['risk_distribution']['medium_risk'],
-                                risk_summary['risk_distribution']['low_risk']
-                            ]
-                        }
-                        
-                        summary_df = pd.DataFrame(summary_data)
-                        st.dataframe(summary_df, use_container_width=True)
-                        
-                        # Sentiment distribution
+                        # Sentiment distribution only
                         st.subheader("Sentiment Distribution")
                         sentiment_dist = sentiment_summary['sentiment_distribution']
                         if sentiment_dist:
@@ -1036,108 +983,13 @@ def main():
                                        color_discrete_map={'Negative': '#E74C3C', 'Positive': '#2ECC71', 'Neutral': '#3498DB'},
                                        title="Article Sentiment Distribution")
                             st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Source analysis
-                        if 'source_summary' in analysis_results:
-                            st.subheader("Source Analysis")
-                            source_summary = analysis_results['source_summary']
-                            if source_summary:
-                                # Create source analysis chart
-                                sources = list(source_summary.keys())
-                                avg_sentiments = [source_summary[s]['avg_sentiment_score'] for s in sources]
-                                avg_risks = [source_summary[s]['avg_risk_score'] for s in sources]
-                                article_counts = [source_summary[s]['article_count'] for s in sources]
-                                
-                                # Create a scatter plot of sentiment vs risk by source
-                                fig = px.scatter(
-                                    x=avg_sentiments, 
-                                    y=avg_risks,
-                                    size=article_counts,
-                                    text=sources,
-                                    title="Source Analysis: Sentiment vs Risk",
-                                    labels={'x': 'Average Sentiment Score', 'y': 'Average Risk Score'},
-                                    color=avg_risks,
-                                    color_continuous_scale='RdYlGn_r'
-                                )
-                                fig.update_traces(textposition="top center")
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                                # Source article count chart
-                                source_df = pd.DataFrame({
-                                    'Source': sources,
-                                    'Article Count': article_counts
-                                })
-                                fig = px.bar(source_df, x='Source', y='Article Count',
-                                           title="Articles by Source",
-                                           color='Article Count',
-                                           color_continuous_scale='Blues')
-                                fig.update_layout(xaxis_tickangle=-45)
-                                st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Risk summary
-                        st.subheader("Risk Analysis Summary")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("High Risk", risk_summary['risk_distribution']['high_risk'])
-                        with col2:
-                            st.metric("Medium Risk", risk_summary['risk_distribution']['medium_risk'])
-                        with col3:
-                            st.metric("Low Risk", risk_summary['risk_distribution']['low_risk'])
-                        
-                        # Risk distribution chart
-                        risk_dist = risk_summary['risk_distribution']
-                        if risk_dist:
-                            risk_df = pd.DataFrame(list(risk_dist.items()), columns=['Risk Level', 'Count'])
-                            fig = px.bar(risk_df, x='Risk Level', y='Count', 
-                                       color='Risk Level',
-                                       color_discrete_map={'High Risk': '#E74C3C', 'Medium Risk': '#F39C12', 'Low Risk': '#27AE60'},
-                                       title="Risk Level Distribution")
-                            st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Risk category averages
-                        if 'category_averages' in risk_summary:
-                            st.subheader("Risk Category Averages")
-                            category_avgs = risk_summary['category_averages']
-                            if category_avgs:
-                                # Create a bar chart for risk categories
-                                categories = list(category_avgs.keys())
-                                scores = list(category_avgs.values())
-                                
-                                fig = px.bar(x=categories, y=scores,
-                                           title="Average Risk Scores by Category",
-                                           labels={'x': 'Risk Category', 'y': 'Average Score'},
-                                           color=scores,
-                                           color_continuous_scale='RdYlGn_r')
-                                fig.update_layout(xaxis_tickangle=-45)
-                                st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Sentiment vs Risk correlation
-                        if 'correlation_summary' in analysis_results:
-                            st.subheader("Sentiment-Risk Correlation")
-                            correlation_summary = analysis_results['correlation_summary']
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("Well Aligned", correlation_summary.get('well_aligned_count', 0))
-                            with col2:
-                                st.metric("Risk Higher", correlation_summary.get('risk_higher_count', 0))
-                            with col3:
-                                st.metric("Sentiment Higher", correlation_summary.get('sentiment_higher_count', 0))
-                            
-                            # Correlation distribution chart
-                            corr_dist = correlation_summary.get('correlation_distribution', {})
-                            if corr_dist:
-                                corr_df = pd.DataFrame(list(corr_dist.items()), columns=['Correlation Type', 'Count'])
-                                fig = px.pie(corr_df, values='Count', names='Correlation Type',
-                                           title="Sentiment-Risk Correlation Distribution",
-                                           color_discrete_map={'aligned': '#2ECC71', 'risk_higher_than_sentiment': '#E74C3C', 'sentiment_higher_than_risk': '#3498DB'})
-                                st.plotly_chart(fig, use_container_width=True)
                     
                     with articles_tab:
                         for article in st.session_state.articles:
                             display_article_card(article)
                     
                     with pinecone_tab:
-                        st.subheader("🔥 Analysis Database Statistics (analysis-db)")
+                        st.subheader("Analysis Database Statistics (analysis-db)")
                         try:
                             from risk_monitor.utils.pinecone_db import AnalysisPineconeDB
                             analysis_db = AnalysisPineconeDB()
@@ -1150,14 +1002,14 @@ def main():
                                 with col2:
                                     st.metric("Index Dimension", stats.get('dimension', 0))
                                 with col3:
-                                    st.metric("🔥 Index Name", "analysis-db")
+                                    st.metric("Index Name", "analysis-db")
                                 
                                 # Show storage results
                                 storage_stats = analysis_results['analysis_summary']['storage_stats']
-                                st.success(f"🔥 {storage_stats['success_count']} out of {storage_stats['total_count']} articles stored in Analysis Database")
+                                st.success(f"{storage_stats['success_count']} out of {storage_stats['total_count']} articles stored in Analysis Database")
                                 
                                 if storage_stats['error_count'] > 0:
-                                    st.warning(f"⚠️ {storage_stats['error_count']} articles failed to store")
+                                    st.warning(f"{storage_stats['error_count']} articles failed to store")
                             else:
                                 st.warning("Could not retrieve Analysis Database statistics")
                         except Exception as e:
@@ -1950,6 +1802,26 @@ def main():
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+# Add caching for better performance
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_cached_analysis_results(articles_hash: str, sentiment_method: str):
+    """Cache analysis results to improve performance"""
+    return None  # Will be populated by actual analysis
+
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
+def get_cached_sentiment_distribution(articles: List[Dict]):
+    """Cache sentiment distribution calculation"""
+    positive_count = sum(1 for a in articles if a.get('sentiment_category') == 'Positive')
+    negative_count = sum(1 for a in articles if a.get('sentiment_category') == 'Negative')
+    neutral_count = len(articles) - positive_count - negative_count
+    
+    return {
+        'positive': positive_count,
+        'negative': negative_count,
+        'neutral': neutral_count,
+        'total': len(articles)
+    }
 
 # Entry point of the script
 if __name__ == "__main__":

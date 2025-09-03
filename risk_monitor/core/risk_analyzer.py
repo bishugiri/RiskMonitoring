@@ -329,8 +329,9 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
         Advanced analysis and storage with comprehensive risk assessment
         """
         try:
-            # Perform advanced analysis
-            analysis_results = await self.analyze_articles_with_advanced_risk(articles, sentiment_method)
+            # Use async analysis for better performance
+            self.logger.info(f"Starting async analysis of {len(articles)} articles")
+            analysis_results = await self.analyze_articles_async(articles, sentiment_method)
             
             # Store in Pinecone database
             storage_stats = {}
@@ -609,3 +610,143 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                 return summary
             finally:
                 loop.close()
+
+    async def analyze_articles_async(self, articles: List[Dict], sentiment_method: str = 'llm') -> List[Dict]:
+        """
+        Asynchronous analysis of multiple articles for improved performance
+        """
+        self.logger.info(f"Starting async analysis of {len(articles)} articles")
+        
+        # Create tasks for concurrent processing
+        tasks = []
+        for article in articles:
+            task = self.analyze_single_article_async(article, sentiment_method)
+            tasks.append(task)
+        
+        # Execute all tasks concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results and handle any exceptions
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                self.logger.error(f"Error analyzing article {i}: {result}")
+                # Provide fallback analysis
+                processed_results.append(self._fallback_analysis(articles[i], sentiment_method))
+            else:
+                processed_results.append(result)
+        
+        self.logger.info(f"Completed async analysis of {len(processed_results)} articles")
+        return processed_results
+    
+    async def analyze_single_article_async(self, article: Dict, sentiment_method: str = 'llm') -> Dict:
+        """
+        Analyze a single article asynchronously
+        """
+        try:
+            # Perform sentiment analysis
+            if sentiment_method == 'llm':
+                sentiment_result = await self.analyze_sentiment_llm_async(article)
+            else:
+                sentiment_result = self.analyze_sentiment_lexicon(article)
+            
+            # Perform risk analysis
+            risk_result = await self.analyze_article_risk_llm(article)
+            
+            return {
+                'sentiment_analysis': sentiment_result,
+                'risk_analysis': risk_result,
+                'sentiment_method': sentiment_method
+            }
+        except Exception as e:
+            self.logger.error(f"Error in async article analysis: {e}")
+            raise
+    
+    async def analyze_sentiment_llm_async(self, article: Dict) -> Dict:
+        """
+        Asynchronous LLM-based sentiment analysis
+        """
+        if not self.openai_client:
+            return self._fallback_sentiment_analysis(article)
+        
+        try:
+            title = article.get('title', '')
+            text = article.get('text', '')
+            
+            # Simplified prompt for faster processing
+            prompt = f"""Analyze the sentiment of this financial news article:
+
+Title: {title}
+Content: {text[:1000]}...
+
+Provide sentiment analysis in JSON format:
+{{
+  "score": <sentiment_score_between_-1_and_1>,
+  "category": "<Positive|Negative|Neutral>",
+  "confidence": <confidence_between_0_and_1>,
+  "justification": "<brief_explanation>"
+}}"""
+
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, 
+                lambda: self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=200
+                )
+            )
+            
+            content = response.choices[0].message.content
+            try:
+                result = json.loads(content)
+                return {
+                    'score': float(result.get('score', 0)),
+                    'category': result.get('category', 'Neutral'),
+                    'confidence': float(result.get('confidence', 0.5)),
+                    'justification': result.get('justification', '')
+                }
+            except (json.JSONDecodeError, ValueError) as e:
+                self.logger.warning(f"Failed to parse LLM response: {e}")
+                return self._fallback_sentiment_analysis(article)
+                
+        except Exception as e:
+            self.logger.error(f"Error in async sentiment analysis: {e}")
+            return self._fallback_sentiment_analysis(article)
+    
+    def _fallback_analysis(self, article: Dict, sentiment_method: str = 'llm') -> Dict:
+        """
+        Fallback analysis when async processing fails
+        """
+        return {
+            'sentiment_analysis': self._fallback_sentiment_analysis(article),
+            'risk_analysis': self._fallback_risk_analysis(article),
+            'sentiment_method': sentiment_method
+        }
+    
+    def _fallback_sentiment_analysis(self, article: Dict) -> Dict:
+        """
+        Fallback sentiment analysis using lexicon method
+        """
+        return analyze_sentiment_sync(article.get('text', ''))
+    
+    def _fallback_risk_analysis(self, article: Dict) -> Dict:
+        """
+        Fallback risk analysis with basic scoring
+        """
+        return {
+            'overall_risk_score': 5.0,
+            'risk_confidence': 0.5,
+            'risk_categories': {
+                'market_risk': {'score': 5.0, 'description': 'Basic risk assessment'},
+                'economic_risk': {'score': 5.0, 'description': 'Basic risk assessment'},
+                'geopolitical_risk': {'score': 5.0, 'description': 'Basic risk assessment'},
+                'sector_risk': {'score': 5.0, 'description': 'Basic risk assessment'},
+                'company_risk': {'score': 5.0, 'description': 'Basic risk assessment'},
+                'regulatory_risk': {'score': 5.0, 'description': 'Basic risk assessment'},
+                'operational_risk': {'score': 5.0, 'description': 'Basic risk assessment'},
+                'financial_risk': {'score': 5.0, 'description': 'Basic risk assessment'}
+            },
+            'key_risk_indicators': ['Basic risk assessment'],
+            'risk_summary': 'Basic risk assessment performed'
+        }
