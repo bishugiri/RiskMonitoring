@@ -60,7 +60,7 @@ class Config:
     LOG_FILE = os.path.join(LOG_DIR, "risk_monitor.log")
     
     # Request Configuration
-    REQUEST_TIMEOUT = 30
+    REQUEST_TIMEOUT = 60  # Increased from 30 to 60 seconds for SerpAPI
     MAX_RETRIES = 3
     
     # Scheduler Configuration
@@ -79,26 +79,108 @@ class Config:
     @staticmethod
     def get_serpapi_key():
         """Get SerpAPI key from environment or Streamlit secrets"""
+        # First try environment variable
+        env_key = os.getenv("SERPAPI_KEY")
+        if env_key:
+            return env_key
+        
+        # Then try Streamlit secrets
         try:
-            return st.secrets["SERPAPI_KEY"]
-        except Exception:
-            return os.getenv("SERPAPI_KEY")
+            if st and hasattr(st, 'secrets'):
+                if hasattr(st.secrets, 'get'):
+                    return st.secrets.get("SERPAPI_KEY")
+                else:
+                    return st.secrets["SERPAPI_KEY"]
+        except Exception as e:
+            # Log the error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to get SerpAPI key from Streamlit secrets: {e}")
+        
+        # Finally, try reading the secrets file directly
+        try:
+            secrets_file = os.path.join(ROOT_DIR, ".streamlit", "secrets.toml")
+            if os.path.exists(secrets_file):
+                import toml
+                with open(secrets_file, 'r') as f:
+                    secrets = toml.load(f)
+                return secrets.get("SERPAPI_KEY")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to read secrets file directly: {e}")
+        
+        return None
     
     @staticmethod
     def get_openai_api_key():
         """Get OpenAI API key from environment or Streamlit secrets"""
+        # First try environment variable
+        env_key = os.getenv("OPENAI_API_KEY")
+        if env_key:
+            return env_key
+        
+        # Then try Streamlit secrets
         try:
-            return st.secrets["OPENAI_API_KEY"]
-        except Exception:
-            return os.getenv("OPENAI_API_KEY")
+            if st and hasattr(st, 'secrets'):
+                if hasattr(st.secrets, 'get'):
+                    return st.secrets.get("OPENAI_API_KEY")
+                else:
+                    return st.secrets["OPENAI_API_KEY"]
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to get OpenAI API key from Streamlit secrets: {e}")
+        
+        # Finally, try reading the secrets file directly
+        try:
+            secrets_file = os.path.join(ROOT_DIR, ".streamlit", "secrets.toml")
+            if os.path.exists(secrets_file):
+                import toml
+                with open(secrets_file, 'r') as f:
+                    secrets = toml.load(f)
+                return secrets.get("OPENAI_API_KEY")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to read secrets file directly: {e}")
+        
+        return None
     
     @staticmethod
     def get_pinecone_api_key():
         """Get Pinecone API key from environment or Streamlit secrets"""
+        # First try environment variable
+        env_key = os.getenv("PINECONE_API_KEY")
+        if env_key:
+            return env_key
+        
+        # Then try Streamlit secrets
         try:
-            return st.secrets["PINECONE_API_KEY"]
-        except Exception:
-            return os.getenv("PINECONE_API_KEY")
+            if st and hasattr(st, 'secrets'):
+                if hasattr(st.secrets, 'get'):
+                    return st.secrets.get("PINECONE_API_KEY")
+                else:
+                    return st.secrets["PINECONE_API_KEY"]
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to get Pinecone API key from Streamlit secrets: {e}")
+        
+        # Finally, try reading the secrets file directly
+        try:
+            secrets_file = os.path.join(ROOT_DIR, ".streamlit", "secrets.toml")
+            if os.path.exists(secrets_file):
+                import toml
+                with open(secrets_file, 'r') as f:
+                    secrets = toml.load(f)
+                return secrets.get("PINECONE_API_KEY")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to read secrets file directly: {e}")
+        
+        return None
 
     # Email/SMTP settings
     @staticmethod

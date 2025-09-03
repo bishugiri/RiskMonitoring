@@ -13,8 +13,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 def main():
     """Run the Streamlit app"""
+    # Get the project root directory (where .streamlit/secrets.toml is located)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    
+    # Change to the project root directory so Streamlit can find the secrets file
+    os.chdir(project_root)
+    
     # Get the path to the streamlit app
-    app_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "api", "streamlit_app.py")
+    app_path = os.path.join(project_root, "risk_monitor", "api", "streamlit_app.py")
     
     # Check if the app exists
     if not os.path.exists(app_path):

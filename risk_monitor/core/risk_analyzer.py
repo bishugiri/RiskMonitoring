@@ -18,7 +18,7 @@ from risk_monitor.utils.sentiment import analyze_sentiment_sync
 
 # Try to import PineconeDB, but handle gracefully if not available
 try:
-    from risk_monitor.utils.pinecone_db import PineconeDB
+    from risk_monitor.utils.pinecone_db import PineconeDB, AnalysisPineconeDB
     PINECONE_AVAILABLE = True
 except ImportError:
     PINECONE_AVAILABLE = False
@@ -338,12 +338,31 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             
             if PINECONE_AVAILABLE:
                 try:
-                    pinecone_db = PineconeDB()
-                    storage_stats = pinecone_db.store_articles_batch(articles, analysis_results)
-                    storage_type = "pinecone"
-                    self.logger.info("Successfully stored articles in Pinecone")
+                    # Use AnalysisPineconeDB for News Analysis (FORCED INSERTION into analysis-db)
+                    self.logger.info(f"🔥 STARTING FORCED INSERTION into analysis-db for {len(articles)} articles")
+                    analysis_pinecone_db = AnalysisPineconeDB()
+                    self.logger.info("🔥 AnalysisPineconeDB initialized successfully")
+                    
+                    storage_stats = analysis_pinecone_db.store_articles_batch(articles, analysis_results)
+                    storage_type = "analysis_pinecone"
+                    self.logger.info(f"🔥 SUCCESSFULLY FORCED {storage_stats['success_count']} articles into analysis-db")
+                    
+                    if storage_stats['error_count'] > 0:
+                        self.logger.warning(f"⚠️ {storage_stats['error_count']} articles failed to force into analysis-db")
+                        
                 except Exception as e:
-                    self.logger.error(f"Pinecone storage failed: {e}")
+                    self.logger.error(f"🔥 CRITICAL ERROR: Analysis-db storage failed: {e}")
+                    # Try fallback to regular PineconeDB
+                    try:
+                        self.logger.info("🔄 Attempting fallback to sentiment-db...")
+                        pinecone_db = PineconeDB()
+                        storage_stats = pinecone_db.store_articles_batch(articles, analysis_results)
+                        storage_type = "pinecone"
+                        self.logger.info("Fallback to sentiment-db successful")
+                    except Exception as fallback_error:
+                        self.logger.error(f"❌ Fallback to sentiment-db also failed: {fallback_error}")
+                        storage_type = "failed"
+                        storage_stats = {'success_count': 0, 'error_count': len(articles), 'total_count': len(articles)}
             
             # Create comprehensive summary
             summary = {
@@ -486,6 +505,38 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             self.logger.error(f"Error saving analysis: {e}")
             raise
 
+    def analyze_sentiment(self, text: str) -> Dict:
+        """
+        Analyze sentiment of text using the configured sentiment method
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            Dictionary with sentiment analysis results
+        """
+        return analyze_sentiment_sync(text, 'llm', self.config.get_openai_api_key())
+    
+    def analyze_risk(self, text: str) -> Dict:
+        """
+        Analyze risk of text using LLM-based analysis
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            Dictionary with risk analysis results
+        """
+        # Create a mock article for analysis
+        mock_article = {
+            'title': 'Text Analysis',
+            'text': text,
+            'url': 'text-analysis'
+        }
+        
+        # Use the fallback analysis for text-only input
+        return self._fallback_risk_analysis(mock_article)
+
     # Legacy methods for backward compatibility
     def analyze_articles(self, articles: List[Dict]) -> Dict:
         """Legacy method - now uses advanced LLM analysis"""
@@ -507,6 +558,48 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
         finally:
             loop.close()
     
-    def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'llm') -> Dict[str, Any]:
-        """Legacy method - now uses advanced LLM analysis"""
-        return self.analyze_articles(articles)
+    def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'llm', store_in_db: bool = True) -> Dict[str, Any]:
+        """
+        Analyze articles with optional database storage
+        Args:
+            articles: List of articles to analyze
+            sentiment_method: Method for sentiment analysis ('llm' or 'lexicon')
+            store_in_db: Whether to store results in database (default: True)
+        """
+        if store_in_db:
+            # Use the advanced method that includes FORCED INSERTION into analysis-db
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(self.analyze_and_store_advanced(articles, sentiment_method))
+                return result
+            finally:
+                loop.close()
+        else:
+            # Analyze without storing in database
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                # Perform analysis without storage
+                analysis_results = loop.run_until_complete(self.analyze_articles_with_advanced_risk(articles, sentiment_method))
+                
+                # Create summary without storage stats
+                summary = {
+                    'analysis_summary': {
+                        'total_articles': len(articles),
+                        'analysis_timestamp': datetime.now().isoformat(),
+                        'sentiment_method': sentiment_method,
+                        'risk_method': 'llm_advanced',
+                        'storage_type': 'analysis_only',
+                        'storage_stats': {'success_count': 0, 'error_count': 0, 'total_count': len(articles)}
+                    },
+                    'sentiment_summary': self._calculate_sentiment_summary(analysis_results),
+                    'risk_summary': self._calculate_advanced_risk_summary(analysis_results),
+                    'correlation_summary': self._calculate_correlation_summary(analysis_results),
+                    'source_summary': self._calculate_source_summary(articles, analysis_results),
+                    'individual_analyses': analysis_results
+                }
+                
+                return summary
+            finally:
+                loop.close()

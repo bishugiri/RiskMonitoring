@@ -25,7 +25,6 @@ class NewsCollector:
     
     def __init__(self):
         self.config = Config()
-        self.config.validate_config()
         self.setup_logging()
     
     def setup_logging(self):
@@ -59,38 +58,92 @@ class NewsCollector:
         
         self.logger.info(f"Searching for news with query: {query}, requesting {num_results} results")
         
+        # Check if API key is available
+        api_key = Config.get_serpapi_key()
+        if not api_key:
+            self.logger.error("❌ SerpAPI key not found in configuration")
+            self.logger.error("   Please set SERPAPI_KEY in environment or Streamlit secrets")
+            # Try to validate config to see if we can get more information
+            try:
+                self.config.validate_config()
+            except Exception as e:
+                self.logger.error(f"Configuration validation failed: {e}")
+            return []
+        
+        self.logger.info(f"✅ SerpAPI key found (length: {len(api_key)}), making request...")
+        
         params = {
             'q': query,
-            'api_key': Config.get_serpapi_key(),
+            'api_key': api_key,
             'engine': 'google_news',
             'num': num_results,
             'tbm': 'nws'  # News search
         }
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
+        self.logger.info(f"🔧 Request URL: {self.config.SERPAPI_BASE_URL}")
+        self.logger.info(f"🔧 Request params: {dict(params, api_key='***HIDDEN***')}")
+        
+        # Use synchronous requests instead of aiohttp for better compatibility
+        return self._search_news_sync(params)
+    
+    def _search_news_sync(self, params: dict) -> List[Dict]:
+        """Synchronous implementation using requests library"""
+        import requests
+        
+        # Retry logic for handling timeouts
+        for attempt in range(self.config.MAX_RETRIES):
+            try:
+                self.logger.info(f"Attempt {attempt + 1}/{self.config.MAX_RETRIES} - Making SerpAPI request...")
+                
+                response = requests.get(
                     self.config.SERPAPI_BASE_URL,
                     params=params,
-                    timeout=aiohttp.ClientTimeout(total=self.config.REQUEST_TIMEOUT)
-                ) as response:
-                    response.raise_for_status()
-                    data = await response.json()
-                    
-                    if 'news_results' in data:
-                        articles = data['news_results']
-                        self.logger.info(f"Found {len(articles)} news articles")
-                        return articles
-                    else:
-                        self.logger.warning("No news results found in API response")
-                        return []
+                    timeout=self.config.REQUEST_TIMEOUT
+                )
                 
-        except aiohttp.ClientError as e:
-            self.logger.error(f"Error searching news: {e}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Unexpected error: {e}")
-            return []
+                self.logger.info(f"✅ SerpAPI response status: {response.status_code}")
+                response.raise_for_status()
+                data = response.json()
+                
+                self.logger.info(f"🔧 Response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                
+                if 'news_results' in data:
+                    articles = data['news_results']
+                    self.logger.info(f"Found {len(articles)} news articles")
+                    return articles
+                else:
+                    self.logger.warning("No news results found in API response")
+                    self.logger.warning(f"Available keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+                    return []
+                    
+            except requests.exceptions.Timeout as e:
+                self.logger.warning(f"Timeout on attempt {attempt + 1}/{self.config.MAX_RETRIES}: {e}")
+                if attempt < self.config.MAX_RETRIES - 1:
+                    self.logger.info(f"Retrying in 2 seconds...")
+                    import time
+                    time.sleep(2)
+                else:
+                    self.logger.error("All retry attempts failed due to timeout")
+                    return []
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"Request error on attempt {attempt + 1}: {e}")
+                if attempt < self.config.MAX_RETRIES - 1:
+                    self.logger.info(f"Retrying in 2 seconds...")
+                    import time
+                    time.sleep(2)
+                else:
+                    return []
+            except Exception as e:
+                self.logger.error(f"Unexpected error on attempt {attempt + 1}: {str(e)}")
+                self.logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                self.logger.error(f"Full traceback: {traceback.format_exc()}")
+                if attempt < self.config.MAX_RETRIES - 1:
+                    self.logger.info(f"Retrying in 2 seconds...")
+                    import time
+                    time.sleep(2)
+                else:
+                    return []
             
     def search_news(self, query: str = None, num_results: int = None) -> List[Dict]:
         """
@@ -103,7 +156,40 @@ class NewsCollector:
         Returns:
             List of article metadata dictionaries
         """
-        # Run the async function in a synchronous context
+        # Add debugging information
+        self.logger.info(f"🔍 search_news called - checking event loop status...")
+        
+        # Check if there's already an event loop running
+        try:
+            loop = asyncio.get_running_loop()
+            self.logger.info(f"🔍 Event loop already running: {loop}")
+            # If we're in an async context, we need to run this differently
+            import concurrent.futures
+            self.logger.info(f"🔍 Using ThreadPoolExecutor for async execution...")
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(self._run_search_sync, query, num_results)
+                try:
+                    result = future.result(timeout=120)  # 2 minute timeout
+                    self.logger.info(f"🔍 ThreadPoolExecutor completed successfully")
+                    return result
+                except concurrent.futures.TimeoutError:
+                    self.logger.error(f"🔍 ThreadPoolExecutor timed out after 120 seconds")
+                    return []
+        except RuntimeError:
+            self.logger.info(f"🔍 No event loop running, creating new one...")
+            # No event loop running, we can create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(self.search_news_async(query, num_results))
+                self.logger.info(f"🔍 New event loop completed successfully")
+                return result
+            finally:
+                loop.close()
+                self.logger.info(f"🔍 Event loop closed")
+    
+    def _run_search_sync(self, query: str = None, num_results: int = None) -> List[Dict]:
+        """Helper method to run search in a separate thread"""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -178,8 +264,14 @@ class NewsCollector:
         Returns:
             List of dictionaries containing article data
         """
-        # Search for news articles
-        articles = await self.search_news_async(query, num_articles)
+        # Search for news articles using synchronous method for better compatibility
+        articles = self._search_news_sync({
+            'q': query or self.config.SEARCH_QUERY,
+            'api_key': Config.get_serpapi_key(),
+            'engine': 'google_news',
+            'num': num_articles or self.config.NUM_ARTICLES,
+            'tbm': 'nws'
+        })
         
         if not articles:
             self.logger.error("No articles found from search")
@@ -256,7 +348,25 @@ class NewsCollector:
         Returns:
             List of dictionaries containing article data
         """
-        # Run the async function in a synchronous context
+        # Check if there's already an event loop running
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in an async context, we need to run this differently
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(self._run_collect_sync, query, num_articles)
+                return future.result()
+        except RuntimeError:
+            # No event loop running, we can create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.collect_articles_async(query, num_articles))
+            finally:
+                loop.close()
+    
+    def _run_collect_sync(self, query: str = None, num_articles: int = None) -> List[Dict]:
+        """Helper method to run collection in a separate thread"""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
