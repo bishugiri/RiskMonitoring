@@ -82,7 +82,7 @@ RiskMonitoring/
 ├── risk_monitor/                 # Main application package
 │   ├── api/                     # Web interface layer
 │   │   └── streamlit_app.py     # Streamlit web application
-│   │                           # - Dashboard, News Analysis, PDF Analysis
+│   │                           # - Dashboard, News Analysis
 │   │                           # - AI Financial Assistant, Scheduler Config
 │   │
 │   ├── config/                  # Configuration management layer
@@ -245,7 +245,7 @@ RiskMonitoring/
 │  │                    User Interface Modules                           │   │
 │  │                                                                     │   │
 │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐    │   │
-│  │  │  Dashboard  │ │News Analysis│ │PDF Analysis │ │AI Assistant │    │   │
+│  │  │  Dashboard  │ │News Analysis│ │AI Assistant │    │   │
 │  │  │             │ │             │ │             │ │             │    │   │
 │  │  │• Metrics    │ │• Search     │ │• Upload     │ │• Chat       │    │   │
 │  │  │• Charts     │ │• Filter     │ │• Extract    │ │• Query      │    │   │
@@ -422,10 +422,8 @@ streamlit run risk_monitor/api/streamlit_app.py
 - **Keyword Filtering**: Focus on risk-related content
 - **Real-time Analysis**: Immediate sentiment and risk assessment
 
-#### PDF Analysis
-- Upload and analyze PDF documents
+
 - Keyword-based content filtering
-- Risk assessment for documents
 - Export analysis results
 
 #### AI Financial Assistant

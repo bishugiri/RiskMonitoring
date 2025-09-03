@@ -9,11 +9,9 @@ import pandas as pd
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from typing import Dict, List
-import PyPDF2
-import io
 import logging
 import requests
 import openai
@@ -54,6 +52,7 @@ def load_custom_css():
         background-color: var(--background-light);
         color: var(--text-dark);
         font-family: 'Open Sans', sans-serif; /* A more modern, clean font */
+        padding-top: 60px !important; /* Add space for fixed header */
     }
 
     /* Header styling for the main application title */
@@ -95,10 +94,121 @@ def load_custom_css():
         animation: fadeInUp 0.5s ease-in-out forwards;
     }
     
-    /* Hide default Streamlit footer */
+    /* Hide default Streamlit footer but keep header visible */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    
+    /* Ensure Streamlit header is visible */
+    header {visibility: visible !important;}
+    .stApp > header {visibility: visible !important;}
+    
+    /* Ensure all Streamlit header elements are visible */
+    [data-testid="stHeader"] {visibility: visible !important;}
+    [data-testid="stToolbar"] {visibility: visible !important;}
+    .stToolbar {visibility: visible !important;}
+    .stHeader {visibility: visible !important;}
+    
+    /* Ensure all Streamlit header controls are visible and functional */
+    [data-testid="stToolbar"] > div {visibility: visible !important;}
+    [data-testid="stToolbar"] button {visibility: visible !important;}
+    [data-testid="stToolbar"] a {visibility: visible !important;}
+    [data-testid="stToolbar"] span {visibility: visible !important;}
+    
+    /* Ensure the three-dot menu and all controls are visible */
+    .stToolbarItems {visibility: visible !important;}
+    .stToolbarItems > * {visibility: visible !important;}
+    
+    /* Ensure running status and deploy buttons are visible */
+    [data-testid="stStatusWidget"] {visibility: visible !important; display: inline-block !important;}
+    [data-testid="stDeployButton"] {visibility: visible !important; display: inline-block !important;}
+    
+    /* Ensure the running status animation is visible */
+    [data-testid="stStatusWidget"] .stStatusWidget {visibility: visible !important; display: inline-block !important;}
+    [data-testid="stStatusWidget"] .stStatusWidget > div {visibility: visible !important; display: inline-block !important;}
+    [data-testid="stStatusWidget"] .stStatusWidget span {visibility: visible !important; display: inline-block !important;}
+    
+    /* Ensure the running animation is visible */
+    [data-testid="stStatusWidget"] .stStatusWidget .stStatusWidget__status {visibility: visible !important; display: inline-block !important;}
+    [data-testid="stStatusWidget"] .stStatusWidget .stStatusWidget__status-icon {visibility: visible !important; display: inline-block !important;}
+    [data-testid="stStatusWidget"] .stStatusWidget .stStatusWidget__status-text {visibility: visible !important; display: inline-block !important;}
+    
+    /* Remove any potential z-index conflicts */
+    header {z-index: 999 !important;}
+    [data-testid="stHeader"] {z-index: 999 !important;}
+    [data-testid="stToolbar"] {z-index: 999 !important;}
+    
+    /* Ensure proper positioning and spacing for Streamlit header */
+    .stApp > header {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
+    [data-testid="stHeader"] {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
+    [data-testid="stToolbar"] {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
+    
+    /* Ensure header elements don't interfere with main content */
+    .main .block-container {padding-top: 2rem !important;}
+    
+    /* Additional styling for Streamlit header visibility - transparent background */
+    .stApp header {background-color: transparent !important; box-shadow: none !important;}
+    .stToolbar {background-color: transparent !important; box-shadow: none !important;}
+    .stToolbarItems {display: flex !important; align-items: center !important; justify-content: flex-end !important;}
+    
+    /* Ensure proper spacing and visibility for all header elements - transparent backgrounds */
+    [data-testid="stToolbar"] {display: flex !important; visibility: visible !important; justify-content: flex-end !important; background: transparent !important;}
+    [data-testid="stStatusWidget"] {display: inline-block !important; visibility: visible !important; margin-left: 8px !important; opacity: 1 !important; background: transparent !important;}
+    [data-testid="stDeployButton"] {display: inline-block !important; visibility: visible !important; margin-left: 8px !important; background: transparent !important;}
+    
+    /* Ensure the running status widget and its contents are fully visible */
+    [data-testid="stStatusWidget"] * {visibility: visible !important; opacity: 1 !important;}
+    [data-testid="stStatusWidget"] .stStatusWidget * {visibility: visible !important; opacity: 1 !important;}
+    
+    /* Ensure the running animation icon is visible */
+    [data-testid="stStatusWidget"] .stStatusWidget__status-icon {visibility: visible !important; opacity: 1 !important; animation: spin 2s linear infinite !important;}
+    
+    /* Define the spinning animation for the running status */
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    /* Force right alignment for all toolbar items */
+    .stToolbarItems > * {margin-left: 8px !important;}
+    [data-testid="stToolbar"] > div {justify-content: flex-end !important;}
+    
+    /* Ensure header stays in top right corner */
+    .stApp > header {width: auto !important; min-width: 200px !important;}
+    [data-testid="stHeader"] {width: auto !important; min-width: 200px !important;}
+    [data-testid="stToolbar"] {width: auto !important; min-width: 200px !important;}
+    
+    /* Prevent any layout shifts */
+    .stApp {overflow-x: hidden !important;}
+    
+    /* Ensure status widget is never hidden by any CSS */
+    [data-testid="stStatusWidget"] {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important; border: none !important; box-shadow: none !important; position: relative !important; z-index: 1000 !important; !important;}
+    
+    /* Override any potential hiding with maximum specificity */
+    .stApp [data-testid="stStatusWidget"] {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important;}
+    .stApp [data-testid="stStatusWidget"] * {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important;}
+    
+    /* Override any potential hiding of Streamlit status elements - always visible */
+    [data-testid="stStatusWidget"] {display: inline-block !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; background: transparent !important; border: none !important; box-shadow: none !important;}
+    [data-testid="stStatusWidget"] * {display: inline-block !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; background: transparent !important;}
+    
+    /* Ensure the running status text is visible - always visible */
+    [data-testid="stStatusWidget"] .stStatusWidget__status-text {display: inline-block !important; visibility: visible !important; opacity: 1 !important; color: #666 !important; font-size: 12px !important; background: transparent !important;}
+    
+    /* Ensure status is always visible - override any hiding */
+    [data-testid="stStatusWidget"] {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important; border: none !important; box-shadow: none !important; position: relative !important; z-index: 1000 !important;}
+    
+    /* Force visibility for all status elements */
+    [data-testid="stStatusWidget"] .stStatusWidget {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important;}
+    [data-testid="stStatusWidget"] .stStatusWidget > div {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important;}
+    [data-testid="stStatusWidget"] .stStatusWidget span {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important;}
+    
+    /* Force visibility of all Streamlit status elements - transparent background */
+    .stStatusWidget {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important; border: none !important; box-shadow: none !important;}
+    .stStatusWidget * {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important;}
+    
+    /* Ensure the running animation is not hidden - always visible */
+    .stStatusWidget__status {display: inline-block !important; visibility: visible !important; opacity: 1 !important; background: transparent !important;}
+    .stStatusWidget__status-icon {display: inline-block !important; visibility: visible !important; opacity: 1 !important; animation: spin 2s linear infinite !important; background: transparent !important;}
     
     /* Sticky footer styling */
     .sticky-footer {
@@ -131,6 +241,7 @@ def load_custom_css():
         background: linear-gradient(180deg, var(--background-light) 0%, var(--card-background) 100%);
         border-right: 1px solid var(--border-color);
         transition: width 0.3s ease-in-out;
+        z-index: 100 !important; /* Ensure sidebar doesn't overlap header */
     }
 
     /* Navigation buttons in the sidebar with improved hover effects */
@@ -294,12 +405,14 @@ def initialize_session_state():
     if 'counterparties' not in st.session_state: st.session_state.counterparties = []
     if 'keywords' not in st.session_state: st.session_state.keywords = ""
     if 'current_page' not in st.session_state: st.session_state.current_page = "dashboard"
-    if 'pdf_text' not in st.session_state: st.session_state.pdf_text = ""
-    if 'pdf_filename' not in st.session_state: st.session_state.pdf_filename = ""
     if 'collect_news_trigger' not in st.session_state: st.session_state.collect_news_trigger = False
-    if 'analyze_pdf_trigger' not in st.session_state: st.session_state.analyze_pdf_trigger = False
     if 'sentiment_method' not in st.session_state: st.session_state.sentiment_method = "lexicon"
     if 'last_run_metadata' not in st.session_state: st.session_state.last_run_metadata = {}
+    
+    # Initialize AI Financial Assistant session state variables
+    if 'rag_service' not in st.session_state: st.session_state.rag_service = None
+    if 'nasdaq_companies' not in st.session_state: st.session_state.nasdaq_companies = None
+    if 'db_stats' not in st.session_state: st.session_state.db_stats = None
 
 def load_master_articles():
     """Loads a list of articles from the master JSON file."""
@@ -344,27 +457,104 @@ def save_to_master_file(new_articles: List[Dict], search_metadata: Dict):
     except Exception as e:
         return False, f"Error saving results: {e}"
 
-def extract_text_from_pdf(pdf_file):
-    """Extracts all text from a PDF file."""
-    try:
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_file.getvalue()))
-        text = ""
-        for page_num in range(len(pdf_reader.pages)):
-            page = pdf_reader.pages[page_num]
-            text += page.extract_text() + "\n"
-        return text.strip()
-    except Exception as e:
-        st.error(f"Error extracting text from PDF: {e}")
-        return ""
 
-def filter_text_by_keywords(text, keywords):
-    """Filters text to only include paragraphs containing specific keywords."""
-    if not keywords.strip(): return text
-    keyword_list = [kw.strip().lower() for kw in keywords.split('\n') if kw.strip()]
-    if not keyword_list: return text
-    paragraphs = text.split('\n\n')
-    relevant_paragraphs = [p for p in paragraphs if any(kw in p.lower() for kw in keyword_list)]
-    return '\n\n'.join(relevant_paragraphs)
+
+def get_nasdaq_100_companies():
+    """Returns the NASDAQ-100 companies list."""
+    return [
+        ("AAPL", "Apple Inc"),
+        ("ADBE", "Adobe Inc"),
+        ("ADI", "Analog Devices Inc"),
+        ("ADP", "Automatic Data Processing Inc"),
+        ("ADSK", "Autodesk Inc"),
+        ("AEP", "American Electric Power Company Inc"),
+        ("ALGN", "Align Technology Inc"),
+        ("AMAT", "Applied Materials Inc"),
+        ("AMD", "Advanced Micro Devices Inc"),
+        ("AMGN", "Amgen Inc"),
+        ("AMZN", "Amazon.com Inc"),
+        ("ANSS", "ANSYS Inc"),
+        ("ASML", "ASML Holding NV"),
+        ("ATVI", "Activision Blizzard Inc"),
+        ("AVGO", "Broadcom Inc"),
+        ("AZN", "AstraZeneca PLC"),
+        ("BIIB", "Biogen Inc"),
+        ("BKNG", "Booking Holdings Inc"),
+        ("BKR", "Baker Hughes Company"),
+        ("CDNS", "Cadence Design Systems Inc"),
+        ("CEG", "Constellation Energy Corp"),
+        ("CHTR", "Charter Communications Inc"),
+        ("CMCSA", "Comcast Corporation"),
+        ("COST", "Costco Wholesale Corporation"),
+        ("CPRT", "Copart Inc"),
+        ("CRWD", "CrowdStrike Holdings Inc"),
+        ("CSCO", "Cisco Systems Inc"),
+        ("CSGP", "CoStar Group Inc"),
+        ("CTAS", "Cintas Corporation"),
+        ("CTSH", "Cognizant Technology Solutions Corp"),
+        ("DDOG", "Datadog Inc"),
+        ("DLTR", "Dollar Tree Inc"),
+        ("DXCM", "DexCom Inc"),
+        ("EA", "Electronic Arts Inc"),
+        ("EBAY", "eBay Inc"),
+        ("ENPH", "Enphase Energy Inc"),
+        ("EXC", "Exelon Corporation"),
+        ("FANG", "Diamondback Energy Inc"),
+        ("FAST", "Fastenal Company"),
+        ("FTNT", "Fortinet Inc"),
+        ("GILD", "Gilead Sciences Inc"),
+        ("GOOG", "Alphabet Inc Class C"),
+        ("GOOGL", "Alphabet Inc Class A"),
+        ("HON", "Honeywell International Inc"),
+        ("IDXX", "IDEXX Laboratories Inc"),
+        ("ILMN", "Illumina Inc"),
+        ("INTC", "Intel Corporation"),
+        ("INTU", "Intuit Inc"),
+        ("ISRG", "Intuitive Surgical Inc"),
+        ("JD", "JD.com Inc"),
+        ("KLAC", "KLA Corporation"),
+        ("LCID", "Lucid Group Inc"),
+        ("LRCX", "Lam Research Corporation"),
+        ("LULU", "Lululemon Athletica Inc"),
+        ("MAR", "Marriott International Inc"),
+        ("MCHP", "Microchip Technology Inc"),
+        ("MDLZ", "Mondelez International Inc"),
+        ("MELI", "MercadoLibre Inc"),
+        ("META", "Meta Platforms Inc"),
+        ("MNST", "Monster Beverage Corporation"),
+        ("MRVL", "Marvell Technology Inc"),
+        ("MSFT", "Microsoft Corporation"),
+        ("MU", "Micron Technology Inc"),
+        ("NFLX", "Netflix Inc"),
+        ("NVDA", "NVIDIA Corporation"),
+        ("NXPI", "NXP Semiconductors NV"),
+        ("ODFL", "Old Dominion Freight Line Inc"),
+        ("OKTA", "Okta Inc"),
+        ("ORCL", "Oracle Corporation"),
+        ("PANW", "Palo Alto Networks Inc"),
+        ("PAYX", "Paychex Inc"),
+        ("PCAR", "PACCAR Inc"),
+        ("PEP", "PepsiCo Inc"),
+        ("PLTR", "Palantir Technologies Inc"),
+        ("PYPL", "PayPal Holdings Inc"),
+        ("QCOM", "QUALCOMM Incorporated"),
+        ("REGN", "Regeneron Pharmaceuticals Inc"),
+        ("ROST", "Ross Stores Inc"),
+        ("SBUX", "Starbucks Corporation"),
+        ("SGEN", "Seagen Inc"),
+        ("SIRI", "Sirius XM Holdings Inc"),
+        ("SNPS", "Synopsys Inc"),
+        ("TEAM", "Atlassian Corporation"),
+        ("TMUS", "T-Mobile US Inc"),
+        ("TSLA", "Tesla Inc"),
+        ("TXN", "Texas Instruments Incorporated"),
+        ("VRTX", "Vertex Pharmaceuticals Inc"),
+        ("WBA", "Walgreens Boots Alliance Inc"),
+        ("WDAY", "Workday Inc"),
+        ("XEL", "Xcel Energy Inc"),
+        ("ZM", "Zoom Video Communications Inc"),
+        ("ZS", "Zscaler Inc")
+    ]
 
 def filter_articles_by_keywords(articles: List[Dict], keywords: str) -> List[Dict]:
     """Filters a list of articles to only include those containing specific keywords."""
@@ -533,10 +723,6 @@ def navigation_sidebar():
         st.session_state.current_page = "news_analysis"
         st.rerun()
 
-    if st.sidebar.button("📄 PDF Analysis", key="nav_pdf", use_container_width=True, type="primary" if st.session_state.current_page == "pdf_analysis" else "secondary"):
-        st.session_state.current_page = "pdf_analysis"
-        st.rerun()
-
     if st.sidebar.button("🤖 AI Financial Assistant", key="nav_rag", use_container_width=True, type="primary" if st.session_state.current_page == "rag_chat" else "secondary"):
         st.session_state.current_page = "rag_chat"
         st.rerun()
@@ -593,7 +779,6 @@ def main():
     load_custom_css()
     initialize_session_state()
     
-    st.markdown('<style>div.block-container{padding-top:1rem;}</style>', unsafe_allow_html=True)
     navigation_sidebar()
     
     # --- Dashboard View ---
@@ -604,7 +789,7 @@ def main():
         st.markdown("---")
         st.header("Latest Analyzed Articles")
         if not st.session_state.articles:
-            st.info("💡 Run a news or PDF analysis to see the latest results here.")
+            st.info("💡 Run a news analysis to see the latest results here.")
         
         for article in st.session_state.articles[:5]:
             display_article_card(article)
@@ -883,116 +1068,133 @@ def main():
             else:
                 st.warning("No articles found matching your criteria.")
 
-    # --- PDF Analysis View ---
-    elif st.session_state.current_page == "pdf_analysis":
-        st.markdown('<div class="custom-container"><h2 style="margin: 0;">PDF Analysis</h2><p style="margin: 0.25rem 0 0; color: #4b5563;">Upload and analyze PDF documents for risk assessment.</p></div>', unsafe_allow_html=True)
-        
-        upload_tab, filters_tab, settings_tab = st.tabs(["📄 Upload PDF", "🔎 Filters", "⚙️ Settings"])
-        
-        with upload_tab:
-            uploaded_file = st.file_uploader("Choose a PDF file", type=['pdf'], help="Upload a PDF document to analyze.")
-            st.session_state.uploaded_file = uploaded_file
-            if uploaded_file:
-                st.success(f"✅ File uploaded: {uploaded_file.name}")
 
-        with filters_tab:
-            st.text_area("Keywords to Search", value=st.session_state.get('pdf_keywords', ""), placeholder="risk\nfinancial\ncrisis", height=150, help="Only analyze paragraphs containing these keywords.", key="pdf_keywords")
-
-        with settings_tab:
-            pdf_sentiment_method = st.selectbox("Sentiment Analysis Method", ["Lexicon Based", "LLM Based"], index=0, key="pdf_sentiment_method_select")
-            st.session_state.sentiment_method = pdf_sentiment_method.lower().replace(' ', '_')
-            st.checkbox("Auto-save results", value=st.session_state.get('auto_save_pdf', True), help="Automatically save analysis results.", key="auto_save_pdf")
-
-        st.markdown("---")
-        if st.button("📊 Analyze PDF", type="primary", use_container_width=True):
-            if not st.session_state.uploaded_file:
-                st.error("⚠️ Please upload a PDF file first.")
-            else:
-                st.session_state.analyze_pdf_trigger = True
-
-        if st.session_state.analyze_pdf_trigger:
-            st.session_state.analyze_pdf_trigger = False
-            
-            with st.spinner("📄 Extracting text and analyzing PDF..."):
-                pdf_text = extract_text_from_pdf(st.session_state.uploaded_file)
-                if not pdf_text:
-                    st.error("❌ Failed to extract text from PDF.")
-                    return
-                
-                st.session_state.pdf_text = filter_text_by_keywords(pdf_text, st.session_state.pdf_keywords)
-                
-                analyzer = RiskAnalyzer()
-                mock_article = {
-                    'title': f"PDF Document: {st.session_state.uploaded_file.name}",
-                    'text': st.session_state.pdf_text,
-                    'source': 'PDF Upload',
-                    'url': 'N/A',
-                    'publish_date': datetime.now().isoformat()
-                }
-                analysis_results = analyzer.analyze_articles([mock_article], st.session_state.sentiment_method)
-            
-            st.success("✅ PDF analysis complete!")
-            st.markdown("---")
-            st.subheader("📄 PDF Analysis Summary")
-            
-            if analysis_results:
-                result = analysis_results[0]
-                sentiment = result.get('sentiment_category', 'Neutral').lower()
-                st.markdown(f'<div class="custom-container {f"sentiment-{sentiment}"}">', unsafe_allow_html=True)
-                st.markdown(f"**Document:** `{st.session_state.uploaded_file.name}`")
-                st.markdown(f"**Sentiment Category:** <span class='badge badge-{sentiment}'>{result.get('sentiment_category', 'N/A').upper()}</span>", unsafe_allow_html=True)
-                st.markdown(f"**Sentiment Score:** `{result.get('sentiment_score', 'N/A')}`")
-                
-                with st.expander("View Analyzed Content"):
-                    st.markdown("This section contains the text extracted from the PDF after applying keyword filters.")
-                    st.code(st.session_state.pdf_text)
-                st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.warning("No relevant content was found in the PDF after filtering.")
 
     # --- AI Financial Assistant View ---
     elif st.session_state.current_page == "rag_chat":
         st.title("🤖 AI Financial Assistant")
         st.markdown("Chat with AI about your stored financial data and get insights.")
         
-        # Initialize RAG service
+        # Initialize RAG service and load data (cached for performance)
         try:
-            from risk_monitor.core.rag_service import RAGService
-            rag_service = RAGService()
+            # Initialize RAG service only once
+            if st.session_state.rag_service is None:
+                with st.spinner("🔄 Initializing AI Financial Assistant..."):
+                    from risk_monitor.core.rag_service import RAGService
+                    st.session_state.rag_service = RAGService()
             
-            # Get database stats
-            db_stats = rag_service.get_database_stats()
+            # Load database stats only once
+            if st.session_state.db_stats is None:
+                with st.spinner("📊 Loading database statistics..."):
+                    st.session_state.db_stats = st.session_state.rag_service.get_database_stats()
+            
+            # Load NASDAQ companies list only once
+            if st.session_state.nasdaq_companies is None:
+                st.session_state.nasdaq_companies = get_nasdaq_100_companies()
             
             # Display database info with filters
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("📊 Total Articles", db_stats.get('total_articles', 0))
+                st.metric("📊 Total Articles", st.session_state.db_stats.get('total_articles', 0))
             
             # Add filter dropdowns in place of Index Dimension and Index Fullness
             with col2:
-                # Company/Entity filter
+                # Company/Entity filter with NASDAQ-100 companies and custom input
                 try:
-                    available_companies = rag_service.get_available_companies()
-                    selected_company = st.selectbox(
+                    # Use cached NASDAQ-100 companies list
+                    nasdaq_100_companies = st.session_state.nasdaq_companies
+                    
+                    # Create dropdown options with NASDAQ-100 companies
+                    dropdown_options = [f"{symbol} - {name}" for symbol, name in nasdaq_100_companies]
+                    dropdown_options.insert(0, "All Companies")
+                    
+                    # Add custom company input option
+                    dropdown_options.append("➕ Enter Custom Company...")
+                    
+                    selected_company_option = st.selectbox(
                         "🏢 Select Company/Entity",
-                        options=available_companies,
+                        options=dropdown_options,
                         index=0,
-                        help="Filter articles by specific company or entity"
+                        help="Choose from NASDAQ-100 companies or enter a custom company name"
                     )
+                    
+                    # Handle custom company input
+                    if selected_company_option == "➕ Enter Custom Company...":
+                        custom_company = st.text_input(
+                            "Enter custom company name or ticker:",
+                            placeholder="e.g., TSLA, Tesla, or any company name",
+                            help="Enter any company name or stock ticker symbol"
+                        )
+                        selected_company = custom_company if custom_company.strip() else "All Companies"
+                    elif selected_company_option == "All Companies":
+                        selected_company = "All Companies"
+                    else:
+                        # Extract symbol from NASDAQ-100 selection
+                        selected_company = selected_company_option.split(" - ")[0]
+                        
                 except Exception as e:
                     st.error(f"Error loading companies: {e}")
                     selected_company = "All Companies"
             
             with col3:
-                # Date range filter
+                # Enhanced Date range filter with more flexible options
                 try:
-                    available_dates = rag_service.get_available_dates()
-                    selected_date = st.selectbox(
+                    # Get available dates from database
+                    available_dates = st.session_state.rag_service.get_available_dates()
+                    
+                    # Enhanced date options with more flexibility
+                    date_options = [
+                        "All Dates",
+                        "Last 7 days",
+                        "Last 30 days", 
+                        "Last 90 days",
+                        "This month",
+                        "Last month",
+                        "This year",
+                        "Last year",
+                        "➕ Custom Date Range..."
+                    ]
+                    
+                    # Add specific dates from database
+                    if available_dates:
+                        # Filter out the basic options that are already in our list
+                        specific_dates = [date for date in available_dates if date not in ["All Dates", "Last 7 days", "Last 30 days"]]
+                        date_options.extend(specific_dates[:15])  # Add up to 15 specific dates
+                    
+                    selected_date_option = st.selectbox(
                         "📅 Select Date Range",
-                        options=available_dates,
+                        options=date_options,
                         index=0,
-                        help="Filter articles by date range"
+                        help="Choose from predefined ranges or specific dates"
                     )
+                    
+                    # Handle custom date range input
+                    if selected_date_option == "➕ Custom Date Range...":
+                        col_date1, col_date2 = st.columns(2)
+                        with col_date1:
+                            start_date = st.date_input(
+                                "Start Date",
+                                value=datetime.now().date() - timedelta(days=30),
+                                help="Select start date for custom range"
+                            )
+                        with col_date2:
+                            end_date = st.date_input(
+                                "End Date", 
+                                value=datetime.now().date(),
+                                help="Select end date for custom range"
+                            )
+                        
+                        if start_date and end_date:
+                            if start_date <= end_date:
+                                selected_date = f"Custom: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+                            else:
+                                st.error("Start date must be before or equal to end date")
+                                selected_date = "All Dates"
+                        else:
+                            selected_date = "All Dates"
+                    else:
+                        selected_date = selected_date_option
+                        
                 except Exception as e:
                     st.error(f"Error loading dates: {e}")
                     selected_date = "All Dates"
@@ -1063,7 +1265,7 @@ def main():
                         entity_filter = selected_company if selected_company != "All Companies" else None
                         date_filter = selected_date if selected_date != "All Dates" else None
                         
-                        response = rag_service.chat_with_agent(
+                        response = st.session_state.rag_service.chat_with_agent(
                             enhanced_query, 
                             conversation_context=conversation_context,
                             entity_filter=entity_filter,
@@ -1113,13 +1315,13 @@ def main():
                     st.markdown("*These are the actual articles from your database that were analyzed to generate the response above.*")
                     
                     # Get ALL the articles from the last response (no limit)
-                    if hasattr(rag_service, 'last_articles') and rag_service.last_articles:
-                        total_articles = len(rag_service.last_articles)
+                    if hasattr(st.session_state.rag_service, 'last_articles') and st.session_state.rag_service.last_articles:
+                        total_articles = len(st.session_state.rag_service.last_articles)
                         st.markdown(f"**📊 Total References Analyzed: {total_articles} articles**")
                         
                         # Show sentiment distribution
                         sentiment_counts = {}
-                        for article in rag_service.last_articles:
+                        for article in st.session_state.rag_service.last_articles:
                             sentiment = article.get('sentiment_category', 'Unknown')
                             sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
                         
@@ -1142,9 +1344,9 @@ def main():
                             )
                             start_idx = (page - 1) * articles_per_page
                             end_idx = min(start_idx + articles_per_page, total_articles)
-                            current_articles = rag_service.last_articles[start_idx:end_idx]
+                            current_articles = st.session_state.rag_service.last_articles[start_idx:end_idx]
                         else:
-                            current_articles = rag_service.last_articles
+                            current_articles = st.session_state.rag_service.last_articles
                         
                         # Display current page articles
                         for i, article in enumerate(current_articles, start_idx + 1 if total_pages > 1 else 1):

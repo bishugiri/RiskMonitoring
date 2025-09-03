@@ -338,6 +338,7 @@ class PineconeDB:
                         try:
                             parsed_date = datetime.fromisoformat(analysis_timestamp.replace('Z', '+00:00'))
                             
+                            # Enhanced date filtering with more options
                             if date_filter == "Last 7 days":
                                 cutoff_date = datetime.now() - timedelta(days=7)
                                 if parsed_date >= cutoff_date:
@@ -346,11 +347,51 @@ class PineconeDB:
                                 cutoff_date = datetime.now() - timedelta(days=30)
                                 if parsed_date >= cutoff_date:
                                     date_filtered.append(match)
-                            else:
-                                # Specific date
-                                target_date = datetime.strptime(date_filter, "%Y-%m-%d")
-                                if parsed_date.date() >= target_date.date():
+                            elif date_filter == "Last 90 days":
+                                cutoff_date = datetime.now() - timedelta(days=90)
+                                if parsed_date >= cutoff_date:
                                     date_filtered.append(match)
+                            elif date_filter == "This month":
+                                current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                                if parsed_date >= current_month_start:
+                                    date_filtered.append(match)
+                            elif date_filter == "Last month":
+                                current_month_start = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                                last_month_end = current_month_start - timedelta(days=1)
+                                last_month_start = last_month_end.replace(day=1)
+                                if last_month_start <= parsed_date <= last_month_end:
+                                    date_filtered.append(match)
+                            elif date_filter == "This year":
+                                current_year_start = datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                                if parsed_date >= current_year_start:
+                                    date_filtered.append(match)
+                            elif date_filter == "Last year":
+                                current_year_start = datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                                last_year_end = current_year_start - timedelta(days=1)
+                                last_year_start = last_year_end.replace(month=1, day=1)
+                                if last_year_start <= parsed_date <= last_year_end:
+                                    date_filtered.append(match)
+                            elif date_filter.startswith("Custom:"):
+                                # Handle custom date range
+                                try:
+                                    date_range_str = date_filter.replace("Custom: ", "")
+                                    start_str, end_str = date_range_str.split(" to ")
+                                    start_date = datetime.strptime(start_str, "%Y-%m-%d")
+                                    end_date = datetime.strptime(end_str, "%Y-%m-%d")
+                                    if start_date <= parsed_date <= end_date:
+                                        date_filtered.append(match)
+                                except Exception as custom_date_error:
+                                    print(f"      ⚠️  Custom date parsing error: {custom_date_error}")
+                                    continue
+                            else:
+                                # Specific date (existing logic)
+                                try:
+                                    target_date = datetime.strptime(date_filter, "%Y-%m-%d")
+                                    if parsed_date.date() >= target_date.date():
+                                        date_filtered.append(match)
+                                except Exception as specific_date_error:
+                                    print(f"      ⚠️  Specific date parsing error: {specific_date_error}")
+                                    continue
                         except Exception as e:
                             print(f"      ⚠️  Date parsing error for match: {e}")
                             continue

@@ -806,17 +806,21 @@ Remember: You are a trusted financial advisor AI providing data-driven insights 
                 if parsed_date != datetime.min:
                     dates.add(parsed_date.strftime("%Y-%m-%d"))
             
-            # Create date range options
-            date_options = ["All Dates", "Last 7 days", "Last 30 days"]
+            # Create enhanced date range options
+            date_options = [
+                "All Dates", 
+                "Last 7 days", 
+                "Last 30 days",
+            ]
             
             # Add specific dates if available
             if dates:
                 sorted_dates = sorted(list(dates), reverse=True)
-                date_options.extend(sorted_dates[:10])  # Add last 10 dates
+                date_options.extend(sorted_dates[:15])  # Add last 15 dates
             
             logger.info(f"Found {len(date_options)} available date options")
             return date_options
             
         except Exception as e:
             logger.error(f"Error getting available dates: {e}")
-            return ["All Dates", "Last 7 days", "Last 30 days"]
+            return ["All Dates", "Last 7 days", "Last 30 days", "Last 90 days", "This month", "Last month", "This year", "Last year"]
