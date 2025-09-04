@@ -44,6 +44,13 @@ output/
 # Shell scripts with API keys
 run_scheduler_with_email.sh
 
+# API key files
+check.py
+
+# Template files (safe to commit)
+!.streamlit/secrets.toml.template
+!check.py.template
+
 # OS specific files
 .DS_Store
 Thumbs.db
