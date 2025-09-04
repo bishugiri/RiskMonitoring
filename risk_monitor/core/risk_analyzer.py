@@ -16,7 +16,7 @@ import httpx
 from concurrent.futures import ThreadPoolExecutor
 
 from risk_monitor.config.settings import Config
-from risk_monitor.utils.sentiment import analyze_sentiment_sync, analyze_sentiment_lexicon, analyze_sentiment_structured
+from risk_monitor.utils.sentiment import analyze_sentiment_sync, analyze_sentiment_lexicon, analyze_sentiment_structured, analyze_sentiment_lexicon_structured
 
 # Try to import PineconeDB, but handle gracefully if not available
 try:
