@@ -41,6 +41,9 @@ output/
 # Streamlit secrets
 .streamlit/secrets.toml
 
+# Shell scripts with API keys
+run_scheduler_with_email.sh
+
 # OS specific files
 .DS_Store
 Thumbs.db
