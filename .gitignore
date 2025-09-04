@@ -22,7 +22,6 @@ wheels/
 
 # Virtual Environment
 venv/
-venv_python39_backup/
 env/
 ENV/
 
