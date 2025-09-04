@@ -14,7 +14,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from risk_monitor.config.settings import Config
-from risk_monitor.utils.sentiment import analyze_sentiment_sync
+from risk_monitor.utils.sentiment import analyze_sentiment_sync, analyze_sentiment_lexicon
 
 # Try to import PineconeDB, but handle gracefully if not available
 try:
@@ -42,9 +42,15 @@ class RiskAnalyzer:
         """Initialize OpenAI client"""
         try:
             from openai import OpenAI
+            import httpx
             api_key = self.config.get_openai_api_key()
             if api_key:
-                self.openai_client = OpenAI(api_key=api_key)
+                # Create httpx client explicitly to avoid proxies issue
+                http_client = httpx.Client(
+                    timeout=httpx.Timeout(30.0),
+                    follow_redirects=True
+                )
+                self.openai_client = OpenAI(api_key=api_key, http_client=http_client)
                 self.logger.info("OpenAI client initialized successfully")
             else:
                 self.logger.warning("OpenAI API key not found - LLM analysis will be disabled")
@@ -880,6 +886,13 @@ Provide sentiment analysis in JSON format:
         Fallback sentiment analysis using lexicon method
         """
         return analyze_sentiment_sync(article.get('text', ''))
+    
+    def analyze_sentiment_lexicon(self, article: Dict) -> Dict:
+        """
+        Lexicon-based sentiment analysis for an article
+        """
+        text = article.get('text', '')
+        return analyze_sentiment_lexicon(text)
     
     def _fallback_risk_analysis(self, article: Dict) -> Dict:
         """

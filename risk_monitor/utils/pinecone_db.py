@@ -108,12 +108,15 @@ class PineconeDB:
         """Generate OpenAI embedding for text"""
         try:
             from openai import OpenAI
-            client = OpenAI(api_key=self.openai_api_key)
+            import httpx
+            client = OpenAI(api_key=self.openai_api_key, http_client=httpx.Client(
+                timeout=httpx.Timeout(30.0),
+                follow_redirects=True
+            ))
             
             response = client.embeddings.create(
                 model="text-embedding-3-large",
-                input=text,
-                dimensions=self.dimension
+                input=text
             )
             return response.data[0].embedding
         except Exception as e:
@@ -359,18 +362,14 @@ class PineconeDB:
             # Generate embedding for query
             query_embedding = self.generate_embedding(query)
             
-            # Build filter
-            filter_dict = {}
-            if entity_filter:
-                filter_dict['entity'] = entity_filter
-            if date_filter:
-                filter_dict['publish_date'] = date_filter
+            # Don't apply entity filter at Pinecone level - will be done in RAG service
+            # This is because entity field is often empty, but articles contain entity info in title/text
             
-            # Search
+            # Search without filters (filtering will be done in RAG service)
             results = self.index.query(
                 vector=query_embedding,
                 top_k=top_k,
-                filter=filter_dict if filter_dict else None,
+                filter=None,  # No Pinecone-level filtering
                 include_metadata=True
             )
             
@@ -388,7 +387,9 @@ class PineconeDB:
                     'sentiment_score': metadata.get('sentiment_score', 0),
                     'sentiment_category': metadata.get('sentiment_category', 'Neutral'),
                     'risk_score': metadata.get('risk_score', 0),
-                    'text': metadata.get('text', '')[:500] + '...' if len(metadata.get('text', '')) > 500 else metadata.get('text', '')
+                    'text': metadata.get('text', '')[:500] + '...' if len(metadata.get('text', '')) > 500 else metadata.get('text', ''),
+                    'analysis_timestamp': metadata.get('analysis_timestamp', ''),  # Required for date filtering
+                    'entity': metadata.get('entity', '')  # Required for entity filtering
                 })
             
             return articles
@@ -409,6 +410,44 @@ class PineconeDB:
         except Exception as e:
             logger.error(f"Error getting index stats: {e}")
             return {}
+    
+    def get_all_articles(self, top_k: int = 1000) -> List[Dict]:
+        """Get all articles from the database without semantic search"""
+        try:
+            # Use a generic query to get all articles
+            query_embedding = self.generate_embedding("article")
+            
+            results = self.index.query(
+                vector=query_embedding,
+                top_k=top_k,
+                filter=None,
+                include_metadata=True
+            )
+            
+            # Format results
+            articles = []
+            for match in results.matches:
+                metadata = match.metadata
+                articles.append({
+                    'id': match.id,
+                    'score': match.score,
+                    'title': metadata.get('title', ''),
+                    'url': metadata.get('url', ''),
+                    'source': metadata.get('source', ''),
+                    'publish_date': metadata.get('publish_date', ''),
+                    'sentiment_score': metadata.get('sentiment_score', 0),
+                    'sentiment_category': metadata.get('sentiment_category', 'Neutral'),
+                    'risk_score': metadata.get('risk_score', 0),
+                    'text': metadata.get('text', '')[:500] + '...' if len(metadata.get('text', '')) > 500 else metadata.get('text', ''),
+                    'analysis_timestamp': metadata.get('analysis_timestamp', ''),
+                    'entity': metadata.get('entity', '')
+                })
+            
+            return articles
+            
+        except Exception as e:
+            logger.error(f"Error getting all articles: {e}")
+            return []
     
     def delete_article(self, article_id: str) -> bool:
         """Delete an article from the index"""

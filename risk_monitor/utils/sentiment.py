@@ -114,7 +114,11 @@ async def analyze_sentiment_llm(text: str, openai_api_key: str) -> Dict:
         }
     
     try:
-        client = OpenAI(api_key=openai_api_key)
+        import httpx
+        client = OpenAI(api_key=openai_api_key, http_client=httpx.Client(
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True
+        ))
         
         system_prompt = """You are an expert financial sentiment analyst specializing in market sentiment analysis, investor psychology, and financial news interpretation. Your role is to analyze financial news articles and provide nuanced sentiment assessments.
 

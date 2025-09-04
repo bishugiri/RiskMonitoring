@@ -1105,71 +1105,55 @@ def main():
                     selected_company = "All Companies"
             
             with col3:
-                # Enhanced Date range filter with more flexible options
+                # Calendar date selector only
                 try:
                     # Get available dates from database
                     available_dates = st.session_state.rag_service.get_available_dates()
                     
-                    # Enhanced date options with more flexibility
-                    date_options = [
-                        "All Dates",
-                        "Last 7 days",
-                        "Last 30 days", 
-                        "Last 90 days",
-                        "This month",
-                        "Last month",
-                        "This year",
-                        "Last year",
-                        "➕ Custom Date Range..."
-                    ]
-                    
-                    # Add specific dates from database
+                    # Convert available dates to datetime objects for min/max
+                    available_datetimes = []
                     if available_dates:
-                        # Filter out the basic options that are already in our list
-                        specific_dates = [date for date in available_dates if date not in ["All Dates", "Last 7 days", "Last 30 days"]]
-                        date_options.extend(specific_dates[:15])  # Add up to 15 specific dates
+                        for date_str in available_dates:
+                            try:
+                                available_datetimes.append(datetime.strptime(date_str, "%Y-%m-%d").date())
+                            except:
+                                continue
                     
-                    selected_date_option = st.selectbox(
-                        "📅 Select Date Range",
-                        options=date_options,
-                        index=0,
-                        help="Choose from predefined ranges or specific dates"
+                    # Set min/max dates for calendar
+                    min_date = min(available_datetimes) if available_datetimes else datetime.now().date() - timedelta(days=365)
+                    max_date = max(available_datetimes) if available_datetimes else datetime.now().date()
+                    
+                    # Default to today's date
+                    default_date = datetime.now().date()
+                    
+                    # Use calendar picker
+                    selected_calendar_date = st.date_input(
+                        "📅 Select Date",
+                        value=default_date,
+                        min_value=min_date,
+                        max_value=max_date,
+                        help="Use the calendar to pick a specific date"
                     )
                     
-                    # Handle custom date range input
-                    if selected_date_option == "➕ Custom Date Range...":
-                        col_date1, col_date2 = st.columns(2)
-                        with col_date1:
-                            start_date = st.date_input(
-                                "Start Date",
-                                value=datetime.now().date() - timedelta(days=30),
-                                help="Select start date for custom range"
-                            )
-                        with col_date2:
-                            end_date = st.date_input(
-                                "End Date", 
-                                value=datetime.now().date(),
-                                help="Select end date for custom range"
-                            )
-                        
-                        if start_date and end_date:
-                            if start_date <= end_date:
-                                selected_date = f"Custom: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
-                            else:
-                                st.error("Start date must be before or equal to end date")
-                                selected_date = "All Dates"
-                        else:
-                            selected_date = "All Dates"
-                    else:
-                        selected_date = selected_date_option
+                    # Convert to string format
+                    selected_date = selected_calendar_date.strftime("%Y-%m-%d")
                         
                 except Exception as e:
                     st.error(f"Error loading dates: {e}")
-                    selected_date = "All Dates"
+                    # Fallback to today's date
+                    selected_date = datetime.now().strftime("%Y-%m-%d")
+            
+            # NEW FLOW: Require both filters to be selected
+            st.markdown("---")
+            
+            # Check if both filters are selected (required for new flow)
+            if selected_company == "All Companies":
+                st.warning("⚠️ **Required:** Please select a Company/Entity before asking questions.")
+                st.markdown("---")
+                return  # Don't show chat interface until company filter is selected
             
             # Show active filters
-            if selected_company != "All Companies" or selected_date != "All Dates":
-                st.info(f"🔍 **Active Filters:** Company: {selected_company} | Date: {selected_date}")
+            st.success(f"✅ **Active Filters:** Company: {selected_company} | Date: {selected_date}")
             
             st.markdown("---")
             
@@ -1231,7 +1215,7 @@ def main():
                         
                         # Apply filters to the query
                         entity_filter = selected_company if selected_company != "All Companies" else None
-                        date_filter = selected_date if selected_date != "All Dates" else None
+                        date_filter = selected_date  # Always a specific date now
                         
                         response = st.session_state.rag_service.chat_with_agent(
                             enhanced_query, 

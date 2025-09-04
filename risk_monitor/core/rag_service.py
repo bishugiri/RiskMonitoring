@@ -20,12 +20,16 @@ class RAGService:
         self.config = Config()
         self.pinecone_db = PineconeDB()
         # Use new OpenAI API
-        self.client = OpenAI(api_key=self.config.get_openai_api_key())
+        import httpx
+        self.client = OpenAI(api_key=self.config.get_openai_api_key(), http_client=httpx.Client(
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True
+        ))
         print("🔧 RAG Service initialized with OpenAI client and PineconeDB")
         
     def search_articles(self, query: str, top_k: int = 50, entity_filter: str = None, date_filter: str = None) -> List[Dict]:
-        """Search for relevant articles in Pinecone database with optional filtering"""
-        print(f"\n🔍 SEARCH ARTICLES - INPUT:")
+        """Search for articles using NEW FILTERING FLOW: Date → Entity → Query"""
+        print(f"🔍 NEW FILTERING FLOW - INPUT:")
         print(f"   Query: '{query}'")
         print(f"   Top_k: {top_k}")
         print(f"   Entity Filter: {entity_filter}")
@@ -38,46 +42,119 @@ class RAGService:
             total_articles = stats.get('total_vector_count', 0)
             print(f"📊 Database Stats: {total_articles} total articles")
             
-            # Use comprehensive search to get all relevant articles
-            # For financial analysis, we want broad coverage to capture all relevant insights
-            search_limit = min(total_articles, 150)  # Increased limit for comprehensive analysis
-            print(f"🔍 Search Limit: {search_limit} articles")
+            # NEW FLOW: Start with ALL articles, then apply filters progressively
+            print(f"🔄 NEW FILTERING FLOW: Date → Entity → Query")
             
-            # Perform the search with production-level two-stage filtering
-            print(f"🔍 Performing production-level Pinecone search...")
-            results = self.pinecone_db.search_similar_articles(
-                query, 
-                top_k=search_limit,
-                entity_filter=entity_filter,
-                date_filter=date_filter
-            )
-            print(f"✅ Raw search results: {len(results)} articles found")
+            # Step 1: Get ALL articles from database (no semantic search yet)
+            print(f"📋 Step 1: Getting ALL articles from database...")
+            all_articles = self.pinecone_db.get_all_articles(top_k=total_articles)
+            print(f"✅ Retrieved {len(all_articles)} total articles")
             
-            # DEBUG: Show first few results structure
-            if results:
-                print(f"\n📋 SAMPLE RAW RESULTS STRUCTURE:")
-                for i, article in enumerate(results[:3], 1):
-                    print(f"   Article {i}:")
-                    print(f"      Title: {article.get('title', 'Unknown')[:50]}...")
-                    print(f"      Text length: {len(article.get('text', ''))} chars")
-                    print(f"      Sentiment: {article.get('sentiment_category', 'Unknown')}")
-                    print(f"      Risk Score: {article.get('risk_score', 0)}")
-                    print(f"      Analysis Timestamp: {article.get('analysis_timestamp', 'None')}")
-                    print(f"      Entity: {article.get('entity', 'None')}")
-                    print()
+            filtered_results = all_articles
             
-            # Filters are now applied in the Pinecone search pipeline
-            filtered_results = results
+            # Step 2: Apply DATE FILTER FIRST
+            if date_filter and date_filter != "All Dates":
+                print(f"📅 Step 2: Applying DATE FILTER FIRST - '{date_filter}'")
+                original_count = len(filtered_results)
+                
+                from datetime import datetime, timedelta
+                try:
+                    if date_filter == "Last 7 days":
+                        cutoff_date = datetime.now() - timedelta(days=7)
+                    elif date_filter == "Last 30 days":
+                        cutoff_date = datetime.now() - timedelta(days=30)
+                    else:
+                        # Specific date format: YYYY-MM-DD
+                        cutoff_date = datetime.strptime(date_filter, "%Y-%m-%d")
+                    
+                    # Filter articles by date using analysis_timestamp
+                    date_filtered_results = []
+                    for article in filtered_results:
+                        article_date = self._parse_article_date(article)
+                        if article_date >= cutoff_date:
+                            date_filtered_results.append(article)
+                    
+                    filtered_results = date_filtered_results
+                    print(f"   ✅ Date filter result: {len(filtered_results)} articles (from {original_count})")
+                    
+                except Exception as e:
+                    print(f"   ❌ Error applying date filter: {e}")
+                    logger.error(f"Error applying date filter: {e}")
+            else:
+                print(f"📅 Step 2: No date filter applied")
+            
+            # Step 3: Apply ENTITY FILTER SECOND
+            if entity_filter and entity_filter != "All Companies":
+                print(f"🔍 Step 3: Applying ENTITY FILTER SECOND - '{entity_filter}'")
+                original_count = len(filtered_results)
+                
+                # More flexible entity filtering - search in title, text, and entity field
+                entity_filtered_results = []
+                for article in filtered_results:
+                    title = article.get('title', '').lower()
+                    text = article.get('text', '').lower()
+                    entity = article.get('entity', '').lower()
+                    entity_filter_lower = entity_filter.lower()
+                    
+                    # Check if entity appears in title, text, or entity field
+                    if (entity_filter_lower in title or 
+                        entity_filter_lower in text or 
+                        entity_filter_lower in entity):
+                        entity_filtered_results.append(article)
+                
+                filtered_results = entity_filtered_results
+                print(f"   ✅ Entity filter result: {len(filtered_results)} articles (from {original_count})")
+            else:
+                print(f"🔍 Step 3: No entity filter applied")
+            
+            # Step 4: Apply USER QUERY FILTER (semantic search on filtered results)
+            if query and query.strip():
+                print(f"🔍 Step 4: Applying USER QUERY FILTER - '{query}'")
+                original_count = len(filtered_results)
+                
+                # Perform semantic search on the already filtered results
+                if filtered_results:
+                    # Get embeddings for filtered articles
+                    query_embedding = self.pinecone_db.generate_embedding(query)
+                    
+                    # Calculate similarity scores for filtered articles
+                    scored_articles = []
+                    for article in filtered_results:
+                        # Get article text for embedding
+                        article_text = article.get('text', '')[:1000]  # Limit text length
+                        if article_text:
+                            try:
+                                article_embedding = self.pinecone_db.generate_embedding(article_text)
+                                # Calculate cosine similarity
+                                similarity = self._calculate_cosine_similarity(query_embedding, article_embedding)
+                                scored_articles.append((article, similarity))
+                            except Exception as e:
+                                # If embedding fails, use low similarity
+                                scored_articles.append((article, 0.0))
+                        else:
+                            scored_articles.append((article, 0.0))
+                    
+                    # Sort by similarity score and take top results
+                    scored_articles.sort(key=lambda x: x[1], reverse=True)
+                    filtered_results = [article for article, score in scored_articles[:top_k]]
+                    
+                    print(f"   ✅ Query filter result: {len(filtered_results)} articles (from {original_count})")
+                else:
+                    print(f"   ⚠️  No articles to apply query filter to")
+            else:
+                print(f"🔍 Step 4: No query filter applied")
+            
             print(f"📋 FILTERING STATUS:")
-            print(f"   Entity filter: {'Applied' if entity_filter and entity_filter != 'All Companies' else 'None'}")
             print(f"   Date filter: {'Applied' if date_filter and date_filter != 'All Dates' else 'None'}")
-            print(f"   Results from production pipeline: {len(filtered_results)} articles")
+            print(f"   Entity filter: {'Applied' if entity_filter and entity_filter != 'All Companies' else 'None'}")
+            print(f"   Query filter: {'Applied' if query and query.strip() else 'None'}")
+            print(f"   Final filtered results: {len(filtered_results)} articles")
             
             # Log comprehensive search results
             print(f"📊 FINAL SEARCH RESULTS:")
             print(f"   Total articles found: {len(filtered_results)}")
-            print(f"   Searched: {search_limit} articles from {total_articles} total")
-            logger.info(f"Comprehensive search completed: Found {len(filtered_results)} relevant articles for query: '{query}' (searched {search_limit} articles from {total_articles} total)")
+            print(f"   Searched: {len(all_articles)} articles from {total_articles} total")
+            logger.info(f"New filtering flow completed: Found {len(filtered_results)} relevant articles for query: '{query}' (searched {len(all_articles)} articles from {total_articles} total)")
             
             # If we have results, log some statistics for debugging
             if filtered_results:
@@ -101,53 +178,57 @@ class RAGService:
                     print(f"      Analysis Timestamp: {article.get('analysis_timestamp', 'None')}")
                     print()
             
-            print(f"✅ SEARCH ARTICLES - OUTPUT: {len(filtered_results)} articles")
+            print(f"✅ NEW FILTERING FLOW - OUTPUT: {len(filtered_results)} articles")
             print("=" * 80)
             return filtered_results
         except Exception as e:
-            print(f"❌ Error in comprehensive article search: {e}")
-            logger.error(f"Error in comprehensive article search: {e}")
+            print(f"❌ Error in new filtering flow: {e}")
+            logger.error(f"Error in new filtering flow: {e}")
             return []
     
     def _parse_article_date(self, article: Dict) -> datetime:
         """Parse article date using ONLY analysis_timestamp for filtering"""
-        print(f"📅 PARSING ARTICLE DATE:")
-        print(f"   Article title: {article.get('title', 'Unknown')[:50]}...")
-        print(f"   Available date fields: {[k for k, v in article.items() if 'date' in k.lower() or 'time' in k.lower()]}")
-        
         # Use ONLY analysis_timestamp from metadata (when stored in database)
         try:
             analysis_timestamp = article.get('analysis_timestamp', '')
-            print(f"   Analysis timestamp: {analysis_timestamp}")
             
             if analysis_timestamp:
                 parsed_date = datetime.fromisoformat(analysis_timestamp.replace('Z', '+00:00'))
-                print(f"   ✅ Parsed date from analysis_timestamp: {parsed_date}")
                 return parsed_date
-            else:
-                print(f"   ❌ No analysis_timestamp found")
         except Exception as e:
-            print(f"   ❌ Could not parse analysis_timestamp: {e}")
             logger.debug(f"Could not parse analysis_timestamp: {e}")
         
         # If analysis_timestamp is not available, return minimum date (article will be included in all filters)
-        print(f"   📅 Using datetime.min as fallback")
         return datetime.min
 
     def _get_date_source(self, article: Dict) -> str:
         """Get the source of the date used for filtering"""
-        print(f"📅 GETTING DATE SOURCE:")
-        print(f"   Article title: {article.get('title', 'Unknown')[:50]}...")
-        
         analysis_timestamp = article.get('analysis_timestamp', '')
-        print(f"   Analysis timestamp: {analysis_timestamp}")
         
         if analysis_timestamp:
-            print(f"   ✅ Date source: Database Storage Date (analysis_timestamp)")
             return "Database Storage Date (analysis_timestamp)"
         
-        print(f"   ❌ Date source: No Date Available")
         return "No Date Available"
+    
+    def _calculate_cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Calculate cosine similarity between two vectors"""
+        try:
+            import numpy as np
+            vec1 = np.array(vec1)
+            vec2 = np.array(vec2)
+            
+            # Calculate cosine similarity
+            dot_product = np.dot(vec1, vec2)
+            norm1 = np.linalg.norm(vec1)
+            norm2 = np.linalg.norm(vec2)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            
+            return dot_product / (norm1 * norm2)
+        except Exception as e:
+            logger.error(f"Error calculating cosine similarity: {e}")
+            return 0.0
     
     def _summarize_articles_for_context(self, articles: List[Dict], max_chars: int) -> List[Dict]:
         """Summarize articles to fit within context limits"""
@@ -794,10 +875,10 @@ Remember: You are a trusted financial advisor AI providing data-driven insights 
             return ["All Companies"]
     
     def get_available_dates(self) -> List[str]:
-        """Get list of available date ranges for filtering"""
+        """Get list of available specific dates for filtering"""
         try:
             # Get recent articles to extract date information
-            results = self.pinecone_db.search_similar_articles("recent", top_k=50)
+            results = self.pinecone_db.search_similar_articles("recent", top_k=100)
             
             dates = set()
             for article in results:
@@ -806,21 +887,15 @@ Remember: You are a trusted financial advisor AI providing data-driven insights 
                 if parsed_date != datetime.min:
                     dates.add(parsed_date.strftime("%Y-%m-%d"))
             
-            # Create enhanced date range options
-            date_options = [
-                "All Dates", 
-                "Last 7 days", 
-                "Last 30 days",
-            ]
-            
-            # Add specific dates if available
+            # Return only specific dates (no range options)
             if dates:
                 sorted_dates = sorted(list(dates), reverse=True)
-                date_options.extend(sorted_dates[:15])  # Add last 15 dates
+                logger.info(f"Found {len(sorted_dates)} available specific dates")
+                return sorted_dates[:30]  # Return last 30 dates
             
-            logger.info(f"Found {len(date_options)} available date options")
-            return date_options
+            logger.info("No specific dates found")
+            return []
             
         except Exception as e:
             logger.error(f"Error getting available dates: {e}")
-            return ["All Dates", "Last 7 days", "Last 30 days", "Last 90 days", "This month", "Last month", "This year", "Last year"]
+            return []

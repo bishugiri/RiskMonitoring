@@ -241,7 +241,11 @@ class NewsScheduler:
         from openai import OpenAI
         
         # Get OpenAI API key from config
-        client = OpenAI(api_key=Config.get_openai_api_key())
+        import httpx
+        client = OpenAI(api_key=Config.get_openai_api_key(), http_client=httpx.Client(
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True
+        ))
         
         logger.info(f"Analyzing sentiment for {len(articles)} articles using OpenAI (async)")
         

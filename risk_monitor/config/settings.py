@@ -7,6 +7,7 @@ import re
 import datetime
 import pytz
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 
 # Try to import streamlit for secrets support
@@ -198,14 +199,14 @@ class Config:
             return int(os.getenv("SMTP_PORT", "587"))
 
     @staticmethod
-    def get_smtp_user() -> str | None:
+    def get_smtp_user() -> Optional[str]:
         try:
             return st.secrets["SMTP_USER"]
         except Exception:
             return os.getenv("SMTP_USER")
 
     @staticmethod
-    def get_smtp_password() -> str | None:
+    def get_smtp_password() -> Optional[str]:
         try:
             return st.secrets["SMTP_PASSWORD"]
         except Exception:
