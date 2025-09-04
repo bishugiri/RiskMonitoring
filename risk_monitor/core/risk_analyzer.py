@@ -12,6 +12,8 @@ from typing import List, Dict, Tuple, Any
 from collections import Counter
 from datetime import datetime
 from urllib.parse import urlparse
+import httpx
+from concurrent.futures import ThreadPoolExecutor
 
 from risk_monitor.config.settings import Config
 from risk_monitor.utils.sentiment import analyze_sentiment_sync, analyze_sentiment_lexicon
@@ -31,6 +33,7 @@ class RiskAnalyzer:
     def __init__(self):
         self.setup_logging()
         self.config = Config()
+        self.http_client = httpx.Client(timeout=30.0)
         self.openai_client = None
         self._init_openai_client()
     
@@ -42,21 +45,95 @@ class RiskAnalyzer:
         """Initialize OpenAI client"""
         try:
             from openai import OpenAI
-            import httpx
             api_key = self.config.get_openai_api_key()
             if api_key:
-                # Create httpx client explicitly to avoid proxies issue
-                http_client = httpx.Client(
-                    timeout=httpx.Timeout(30.0),
-                    follow_redirects=True
-                )
-                self.openai_client = OpenAI(api_key=api_key, http_client=http_client)
+                # Use the shared HTTP client for better performance
+                self.openai_client = OpenAI(api_key=api_key, http_client=self.http_client)
                 self.logger.info("OpenAI client initialized successfully")
             else:
                 self.logger.warning("OpenAI API key not found - LLM analysis will be disabled")
         except Exception as e:
             self.logger.error(f"Failed to initialize OpenAI client: {e}")
-    
+
+    async def analyze_articles_batch_llm(self, articles: List[Dict], batch_size: int = 5) -> List[Dict]:
+        """
+        Analyze multiple articles in batches for better performance
+        
+        Args:
+            articles: List of articles to analyze
+            batch_size: Number of articles to process in each batch
+            
+        Returns:
+            List of analysis results
+        """
+        if not self.openai_client:
+            return [self._fallback_risk_analysis(article) for article in articles]
+        
+        results = []
+        
+        # Process articles in batches
+        for i in range(0, len(articles), batch_size):
+            batch = articles[i:i + batch_size]
+            self.logger.info(f"Processing batch {i//batch_size + 1}/{(len(articles) + batch_size - 1)//batch_size}")
+            
+            # Create batch analysis tasks
+            batch_tasks = []
+            for article in batch:
+                task = self.analyze_article_risk_llm(article)
+                batch_tasks.append(task)
+            
+            # Process batch concurrently
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            
+            # Handle any exceptions in batch
+            for j, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    self.logger.error(f"Error analyzing article in batch: {result}")
+                    results.append(self._fallback_risk_analysis(batch[j]))
+                else:
+                    results.append(result)
+        
+        return results
+
+    async def analyze_sentiment_batch_llm(self, articles: List[Dict], batch_size: int = 5) -> List[Dict]:
+        """
+        Analyze sentiment for multiple articles in batches
+        
+        Args:
+            articles: List of articles to analyze
+            batch_size: Number of articles to process in each batch
+            
+        Returns:
+            List of sentiment analysis results
+        """
+        if not self.openai_client:
+            return [self._fallback_sentiment_analysis(article) for article in articles]
+        
+        results = []
+        
+        # Process articles in batches
+        for i in range(0, len(articles), batch_size):
+            batch = articles[i:i + batch_size]
+            
+            # Create batch analysis tasks
+            batch_tasks = []
+            for article in batch:
+                task = self.analyze_sentiment_llm_async(article)
+                batch_tasks.append(task)
+            
+            # Process batch concurrently
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            
+            # Handle any exceptions in batch
+            for j, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    self.logger.error(f"Error analyzing sentiment in batch: {result}")
+                    results.append(self._fallback_sentiment_analysis(batch[j]))
+                else:
+                    results.append(result)
+        
+        return results
+
     async def analyze_article_risk_llm(self, article: Dict) -> Dict:
         """
         Advanced LLM-based risk analysis for a single article
@@ -127,14 +204,17 @@ Consider the following factors in your analysis:
 
 Provide a detailed, nuanced risk assessment that considers both immediate and long-term implications."""
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=1500,
-                temperature=0.3,
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, 
+                lambda: self.openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=1500,
+                    temperature=0.3,
+                )
             )
             
             response_text = response.choices[0].message.content
@@ -762,31 +842,44 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
 
     async def analyze_articles_async(self, articles: List[Dict], sentiment_method: str = 'llm') -> List[Dict]:
         """
-        Asynchronous analysis of multiple articles for improved performance
+        Asynchronous analysis of multiple articles with batch processing for improved performance
         """
         self.logger.info(f"Starting async analysis of {len(articles)} articles")
         
-        # Create tasks for concurrent processing
-        tasks = []
-        for article in articles:
-            task = self.analyze_single_article_async(article, sentiment_method)
-            tasks.append(task)
+        # Process sentiment and risk analysis in parallel
+        if sentiment_method == 'llm':
+            sentiment_task = self.analyze_sentiment_batch_llm(articles, batch_size=5)
+            risk_task = self.analyze_articles_batch_llm(articles, batch_size=5)
+            
+            # Run both analyses concurrently
+            sentiment_results, risk_results = await asyncio.gather(sentiment_task, risk_task)
+        else:
+            # Use lexicon method for sentiment (faster)
+            sentiment_results = [self.analyze_sentiment_lexicon(article) for article in articles]
+            risk_results = await self.analyze_articles_batch_llm(articles, batch_size=5)
         
-        # Execute all tasks concurrently
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Combine results
+        combined_results = []
+        for i, article in enumerate(articles):
+            try:
+                sentiment_result = sentiment_results[i] if i < len(sentiment_results) else self._fallback_sentiment_analysis(article)
+                risk_result = risk_results[i] if i < len(risk_results) else self._fallback_risk_analysis(article)
+                
+                # Add risk-sentiment correlation analysis
+                correlation_result = self._analyze_risk_sentiment_correlation(risk_result, sentiment_result)
+                
+                combined_results.append({
+                    'sentiment_analysis': sentiment_result,
+                    'risk_analysis': risk_result,
+                    'sentiment_method': sentiment_method,
+                    'risk_sentiment_correlation': correlation_result
+                })
+            except Exception as e:
+                self.logger.error(f"Error combining results for article {i}: {e}")
+                combined_results.append(self._fallback_analysis(article, sentiment_method))
         
-        # Process results and handle any exceptions
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                self.logger.error(f"Error analyzing article {i}: {result}")
-                # Provide fallback analysis
-                processed_results.append(self._fallback_analysis(articles[i], sentiment_method))
-            else:
-                processed_results.append(result)
-        
-        self.logger.info(f"Completed async analysis of {len(processed_results)} articles")
-        return processed_results
+        self.logger.info(f"Completed async analysis of {len(combined_results)} articles")
+        return combined_results
     
     async def analyze_single_article_async(self, article: Dict, sentiment_method: str = 'llm') -> Dict:
         """

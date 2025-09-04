@@ -171,9 +171,10 @@ class NewsScheduler:
             return []
             
     async def collect_entity_news_async(self, entity: str, num_articles: int) -> List[Dict]:
-        """Collect news for a specific entity asynchronously"""
-        logger.info(f"Collecting news for entity: {entity} (async)")
+        """Collect news for a specific entity asynchronously with optimized performance"""
+        logger.info(f"Collecting news for entity: {entity}")
         try:
+            # Use the optimized async collection method
             articles = await self.collector.collect_articles_async(
                 query=entity,
                 num_articles=num_articles
@@ -407,7 +408,7 @@ class NewsScheduler:
             loop.close()
             
     async def run_daily_collection_async(self):
-        """Run the daily news collection and analysis asynchronously"""
+        """Run the daily news collection and analysis asynchronously with performance optimizations"""
         logger.info("Starting enhanced daily news collection (async)")
         
         # Check if we have entities to monitor
@@ -429,108 +430,96 @@ class NewsScheduler:
             entity_tasks.append(task)
         
         # Run all entity collection tasks concurrently
+        logger.info(f"Starting concurrent collection for {len(self.config.entities)} entities")
         entity_results = await asyncio.gather(*entity_tasks)
         
         # Combine results
         for entity_articles in entity_results:
             all_articles.extend(entity_articles)
         
+        logger.info(f"Total articles collected: {len(all_articles)}")
+        
         # Filter articles by keywords if specified
         if self.config.keywords:
-            original_count = len(all_articles)
+            logger.info(f"Filtering articles by keywords: {self.config.keywords}")
             filtered_articles = []
-            
-            # Create a task for filtering (can be done in a thread pool for better performance)
-            loop = asyncio.get_event_loop()
-            with ThreadPoolExecutor() as executor:
-                filtered_articles = await loop.run_in_executor(
-                    executor,
-                    self._filter_articles_by_keywords,
-                    all_articles
-                )
-            
+            for article in all_articles:
+                text = article.get('text', '').lower()
+                title = article.get('title', '').lower()
+                if any(keyword.lower() in text or keyword.lower() in title for keyword in self.config.keywords):
+                    filtered_articles.append(article)
             all_articles = filtered_articles
-            logger.info(f"Filtered articles from {original_count} to {len(all_articles)} using keywords")
+            logger.info(f"Articles after keyword filtering: {len(all_articles)}")
         
-        # Perform dual sentiment analysis
-        if self.config.enable_dual_sentiment:
-            all_articles = await self.analyze_sentiment_dual_async(all_articles)
-        elif self.config.use_openai:
-            all_articles = await self.analyze_sentiment_with_openai_async(all_articles)
-        else:
-            # Use built-in lexicon-based sentiment analysis
-            all_articles = await self.analyze_sentiment_with_lexicon_async(all_articles)
+        if not all_articles:
+            logger.warning("No articles found after collection and filtering")
+            return
         
-        # Run risk analysis
-        try:
-            loop = asyncio.get_event_loop()
-            with ThreadPoolExecutor() as executor:
-                analysis = await loop.run_in_executor(
-                    executor,
-                    self.analyzer.analyze_articles,
-                    all_articles
-                )
-            
-            # Add risk analysis to articles
-            # Create a mapping from URL to analysis for easy lookup
-            article_analysis_mapping = {}
-            for article_analysis in analysis.get('article_analysis', []):
-                url = article_analysis.get('url', '')
-                if url:
-                    article_analysis_mapping[url] = article_analysis
-            
-            # Add risk analysis to each article
-            for article in all_articles:
-                url = article.get('url', '')
-                if url in article_analysis_mapping:
-                    article['risk_analysis'] = article_analysis_mapping[url]
-                else:
-                    article['risk_analysis'] = {}
-            
-            logger.info("Risk analysis completed")
-        except Exception as e:
-            logger.error(f"Error in risk analysis: {e}")
-            # Add empty risk analysis to articles if analysis fails
-            for article in all_articles:
-                article['risk_analysis'] = {}
+        # Perform analysis with optimized batch processing
+        logger.info("Starting optimized batch analysis")
+        analysis_results = await self.analyzer.analyze_articles_async(
+            all_articles, 
+            sentiment_method='llm'
+        )
         
-        # Store articles in Pinecone database
-        if self.config.enable_pinecone_storage:
-            storage_result = await self.store_articles_in_pinecone_async(all_articles)
-            logger.info(f"Pinecone storage: {storage_result['success_count']}/{storage_result['total_count']} articles stored")
-        else:
-            logger.warning("Pinecone storage is disabled - articles will not be stored")
+        # Store results in database if enabled
+        if self.config.enable_pinecone_storage and PINECONE_AVAILABLE:
+            logger.info("Storing results in Pinecone database")
+            storage_stats = await self.pinecone_db.store_articles_batch_async(
+                all_articles, 
+                analysis_results
+            )
+            logger.info(f"Storage completed: {storage_stats}")
+        
+        # Generate summary
+        summary = self._generate_collection_summary(all_articles, analysis_results)
+        
+        # Save results to file
+        output_file = f"output/daily_collection_{timestamp}.json"
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        with open(output_file, 'w') as f:
+            json.dump(summary, f, indent=2, default=str)
+        
+        logger.info(f"Daily collection completed. Results saved to {output_file}")
+        return summary
 
-        # Enhanced Email reporting
-        if all_articles:
-            try:
-                if self.config.email_enabled:
-                    # Prepare summary
-                    summary = analysis.get('summary', {})
-                    
-                    # Identify top 10 most negative articles overall (by sentiment score ascending)
-                    articles_with_sentiment = [a for a in all_articles if a.get('sentiment_analysis')]
-                    top_negative = sorted(
-                        articles_with_sentiment,
-                        key=lambda a: a.get('sentiment_analysis', {}).get('score', 0)
-                    )[:10]
+    def _generate_collection_summary(self, articles: List[Dict], analysis_results: Dict) -> Dict:
+        """Generate a summary of the collection and analysis results."""
+        summary = {
+            'total_articles_collected': len(articles),
+            'total_articles_analyzed': len(analysis_results.get('article_analysis', [])),
+            'total_articles_risk_analyzed': len(analysis_results.get('risk_analysis', [])),
+            'summary_sentiment': analysis_results.get('summary', {}).get('sentiment', {}),
+            'summary_risk': analysis_results.get('summary', {}).get('risk', {}),
+            'summary_overall': analysis_results.get('summary', {}).get('overall', {}),
+            'article_analysis_summary': {},
+            'risk_analysis_summary': {}
+        }
 
-                    if self.config.enable_detailed_email:
-                        html = format_detailed_email_html(summary, top_negative, all_articles)
-                    else:
-                        html = format_daily_summary_html(summary, top_negative)
-                    
-                    send_html_email(
-                        subject=f"Daily Risk Monitor Summary {timestamp}",
-                        html_body=html,
-                        recipients=self.config.email_recipients or Config.get_email_recipients(),
-                    )
-                    logger.info("Enhanced daily summary email sent")
-            except Exception as e:
-                logger.error(f"Failed to send daily email: {e}")
-        else:
-            logger.warning("No articles collected")
-            
+        # Summarize article analysis
+        article_analysis_summary = {}
+        for method_name, method_data in analysis_results.get('article_analysis_summary', {}).items():
+            article_analysis_summary[method_name] = {
+                'total_articles': method_data.get('total_articles', 0),
+                'positive_count': method_data.get('positive_count', 0),
+                'neutral_count': method_data.get('neutral_count', 0),
+                'negative_count': method_data.get('negative_count', 0),
+                'average_sentiment_score': method_data.get('average_sentiment_score', 0.0)
+            }
+        summary['article_analysis_summary'] = article_analysis_summary
+
+        # Summarize risk analysis
+        risk_analysis_summary = {}
+        for risk_type, risk_data in analysis_results.get('risk_analysis_summary', {}).items():
+            risk_analysis_summary[risk_type] = {
+                'total_articles': risk_data.get('total_articles', 0),
+                'average_risk_score': risk_data.get('average_risk_score', 0.0)
+            }
+        summary['risk_analysis_summary'] = risk_analysis_summary
+
+        return summary
+        
     def _filter_articles_by_keywords(self, articles: List[Dict]) -> List[Dict]:
         """Filter articles by keywords (helper method for async operation)"""
         filtered_articles = []

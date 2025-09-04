@@ -16,7 +16,9 @@ from typing import List, Dict, Optional, Union, Any
 from urllib.parse import urlparse
 import newspaper
 from newspaper import Article
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from risk_monitor.config.settings import Config
 
@@ -26,6 +28,13 @@ class NewsCollector:
     def __init__(self):
         self.config = Config()
         self.setup_logging()
+        # Performance optimization: Use a session for HTTP requests
+        self.session = httpx.Client(timeout=10.0)
+        # Blocked domains that frequently return 403
+        self.blocked_domains = {
+            'bloomberg.com', 'seekingalpha.com', 'wsj.com', 'ft.com',
+            'reuters.com', 'cnbc.com', 'marketwatch.com'
+        }
     
     def setup_logging(self):
         """Setup logging configuration"""
@@ -41,7 +50,15 @@ class NewsCollector:
             ]
         )
         self.logger = logging.getLogger(__name__)
-    
+
+    def _is_blocked_domain(self, url: str) -> bool:
+        """Check if URL is from a blocked domain"""
+        try:
+            domain = urlparse(url).netloc.lower()
+            return any(blocked in domain for blocked in self.blocked_domains)
+        except:
+            return False
+
     async def search_news_async(self, query: str = None, num_results: int = None) -> List[Dict]:
         """
         Asynchronously search for news articles using SerpAPI
@@ -197,9 +214,10 @@ class NewsCollector:
         finally:
             loop.close()
     
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=4, max=10))
     def extract_article_content(self, url: str) -> Optional[Dict]:
         """
-        Extract content from a news article URL
+        Extract content from a news article URL with retry logic and timeout
         
         Args:
             url: URL of the article to extract
@@ -208,18 +226,29 @@ class NewsCollector:
             Dictionary containing extracted article data or None if failed
         """
         try:
+            # Skip blocked domains to avoid wasting time
+            if self._is_blocked_domain(url):
+                self.logger.info(f"Skipping blocked domain: {url}")
+                return None
+            
             self.logger.info(f"Extracting content from: {url}")
             
-            # Use newspaper3k to extract article content
+            # Use newspaper3k with timeout and custom configuration
             article = Article(url)
+            article.config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            article.config.request_timeout = 10
+            article.config.number_threads = 1
+            article.config.verbose = False
+            
+            # Set timeout for download
             article.download()
             article.parse()
             
             # Extract text content
             text = article.text.strip()
             
-            if not text:
-                self.logger.warning(f"No text content extracted from {url}")
+            if not text or len(text) < 50:  # Minimum content threshold
+                self.logger.warning(f"Insufficient text content extracted from {url}")
                 return None
             
             return {
@@ -237,7 +266,37 @@ class NewsCollector:
         except Exception as e:
             self.logger.error(f"Error extracting content from {url}: {e}")
             return None
+
+    def extract_articles_concurrent(self, urls: List[str], max_workers: int = 5) -> List[Dict]:
+        """
+        Extract articles concurrently using ThreadPoolExecutor for better performance
+        
+        Args:
+            urls: List of URLs to extract
+            max_workers: Maximum number of concurrent workers
             
+        Returns:
+            List of extracted articles
+        """
+        extracted_articles = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_url = {executor.submit(self.extract_article_content, url): url for url in urls}
+            
+            # Process completed tasks
+            for future in as_completed(future_to_url, timeout=30):  # 60 second timeout
+                url = future_to_url[future]
+                try:
+                    result = future.result(timeout=5)  # 15 second timeout per article
+                    if result:
+                        extracted_articles.append(result)
+                        self.logger.info(f"Successfully extracted: {result.get('title', 'Unknown')}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to extract {url}: {e}")
+        
+        return extracted_articles
+
     async def extract_article_content_async(self, url: str) -> Optional[Dict]:
         """
         Asynchronously extract content from a news article URL
@@ -255,7 +314,7 @@ class NewsCollector:
     
     async def collect_articles_async(self, query: str = None, num_articles: int = None) -> List[Dict]:
         """
-        Asynchronously collect and extract content from news articles
+        Asynchronously collect and extract content from news articles with performance optimizations
         
         Args:
             query: Search query
@@ -282,27 +341,28 @@ class NewsCollector:
             self.logger.info(f"Limiting articles from {len(articles)} to {num_articles}")
             articles = articles[:num_articles]
         
-        extracted_articles = []
-        tasks = []
-        
-        # Create tasks for all articles
-        for i, article in enumerate(articles, 1):
+        # Extract URLs and filter out blocked domains
+        urls = []
+        for article in articles:
             url = article.get('link')
-            if not url:
-                self.logger.warning(f"No URL found for article {i}")
-                continue
-                
-            # Create a task for each article
-            task = asyncio.create_task(self._process_article(article, i, len(articles)))
-            tasks.append(task)
+            if url and not self._is_blocked_domain(url):
+                urls.append(url)
         
-        # Process all articles concurrently
-        if tasks:
-            results = await asyncio.gather(*tasks)
-            extracted_articles = [result for result in results if result]
+        self.logger.info(f"Processing {len(urls)} articles concurrently (filtered from {len(articles)})")
         
-        self.logger.info(f"Successfully extracted {len(extracted_articles)} articles")
-        return extracted_articles
+        # Extract articles concurrently
+        extracted_articles = self.extract_articles_concurrent(urls, max_workers=20)
+        
+        # Combine search metadata with extracted content
+        final_articles = []
+        for extracted in extracted_articles:
+            # Find matching article metadata
+            matching_article = next((a for a in articles if a.get('link') == extracted['url']), {})
+            full_article = {**matching_article, **extracted}
+            final_articles.append(full_article)
+        
+        self.logger.info(f"Successfully extracted {len(final_articles)} articles")
+        return final_articles
         
     async def _process_article(self, article: Dict, index: int, total: int) -> Optional[Dict]:
         """

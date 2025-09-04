@@ -1,113 +1,294 @@
 """
-Pinecone Database Integration for Risk Monitor
-Stores article analysis results with OpenAI embeddings and comprehensive metadata
+Pinecone database utilities for storing and retrieving article embeddings and metadata.
 """
 
-from pinecone import Pinecone
-import pinecone
-import openai
-import json
 import logging
 import hashlib
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+import json
+import os
+from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
-from risk_monitor.config.settings import Config
+# Try to import Pinecone, but handle gracefully if not available
+try:
+    import pinecone
+    PINECONE_AVAILABLE = True
+except ImportError:
+    PINECONE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 class PineconeDB:
-    """Pinecone database integration for storing article analysis results"""
+    """
+    Pinecone database interface for storing article embeddings and metadata.
+    Optimized for batch operations and concurrent processing.
+    """
     
-    def __init__(self, index_name: str = None):
-        print(f"\n🔧 PINECONE DB INITIALIZATION:")
-        self.config = Config()
-        self.index_name = index_name or self.config.PINECONE_INDEX_NAME
-        self.dimension = 3072  # OpenAI large embeddings dimension
-        self.pinecone_api_key = self.config.get_pinecone_api_key()
-        self.openai_api_key = self.config.get_openai_api_key()
+    def __init__(self, index_name: str = "sentiment-db"):
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.index_name = index_name
+        self.index = None
+        self._init_pinecone()
+    
+    def _init_pinecone(self):
+        """Initialize Pinecone client and index"""
+        if not PINECONE_AVAILABLE:
+            logger.warning("Pinecone not available - database operations will be disabled")
+            return
         
-        print(f"   Index name: {self.index_name}")
-        print(f"   Dimension: {self.dimension}")
-        print(f"   Pinecone API key: {'✅ Set' if self.pinecone_api_key else '❌ Not set'}")
-        print(f"   OpenAI API key: {'✅ Set' if self.openai_api_key else '❌ Not set'}")
-        
-        if not self.pinecone_api_key:
-            print(f"   ❌ ERROR: Pinecone API key not found in configuration")
-            raise ValueError("Pinecone API key not found in configuration")
-        if not self.openai_api_key:
-            print(f"   ❌ ERROR: OpenAI API key not found in configuration")
-            raise ValueError("OpenAI API key not found in configuration")
-        
-        # Initialize Pinecone with new API
-        print(f"   🔧 Initializing Pinecone client...")
         try:
-            self.pc = Pinecone(api_key=self.pinecone_api_key)
-            print(f"   ✅ Pinecone client initialized")
+            # Get API key from environment
+            api_key = os.getenv('PINECONE_API_KEY')
+            if not api_key:
+                logger.error("PINECONE_API_KEY not found in environment")
+                return
+            
+            # Initialize Pinecone
+            from pinecone import Pinecone
+            pc = Pinecone(api_key=api_key)
+            self.pc = pc
+            
+            # Get or create index
+            self._get_or_create_index()
+            
         except Exception as e:
-            print(f"   ❌ ERROR initializing Pinecone client: {e}")
-            raise
-        
-        # Initialize OpenAI API key (not needed for new API, but keeping for compatibility)
-        self.openai_api_key = self.openai_api_key
-        
-        # Get or create index
-        print(f"   🔧 Getting or creating index...")
-        try:
-            self.index = self._get_or_create_index()
-            print(f"   ✅ Index ready: {self.index_name}")
-        except Exception as e:
-            print(f"   ❌ ERROR getting/creating index: {e}")
-            raise
-        
-        print("=" * 80)
-        
+            logger.error(f"Failed to initialize Pinecone: {e}")
+    
     def _get_or_create_index(self):
         """Get existing index or create new one"""
-        print(f"   📋 Getting or creating index: {self.index_name}")
         try:
             # Check if index exists
-            print(f"   🔍 Checking existing indexes...")
-            index_list = self.pc.list_indexes().names()
-            print(f"   📋 Available indexes: {index_list}")
-            
-            if self.index_name in index_list:
-                print(f"   ✅ Using existing Pinecone index: {self.index_name}")
+            if self.index_name in self.pc.list_indexes().names():
+                self.index = self.pc.Index(self.index_name)
                 logger.info(f"Using existing Pinecone index: {self.index_name}")
-                return self.pc.Index(self.index_name)
             else:
                 # Create new index
-                print(f"   🔧 Creating new Pinecone index: {self.index_name}")
-                logger.info(f"Creating new Pinecone index: {self.index_name}")
-                try:
-                    self.pc.create_index(
-                        name=self.index_name,
-                        dimension=self.dimension,
-                        metric="cosine",
-                        spec=pinecone.ServerlessSpec(
-                            cloud="aws",
-                            region="us-east-1"
-                        )
-                    )
-                    print(f"   ✅ Index created successfully")
-                    return self.pc.Index(self.index_name)
-                except Exception as create_error:
-                    print(f"   ❌ Error creating index: {create_error}")
-                    if "pod quota" in str(create_error).lower() or "quota" in str(create_error).lower():
-                        logger.error("Pinecone pod quota exceeded. Please upgrade your Pinecone plan.")
-                        raise ValueError("Pinecone quota exceeded - please upgrade your plan")
-                    else:
-                        raise create_error
+                from pinecone import ServerlessSpec
+                self.pc.create_index(
+                    name=self.index_name,
+                    dimension=1536,  # OpenAI text-embedding-3-small dimension
+                    metric="cosine",
+                spec=ServerlessSpec(
+                    cloud="aws",
+                    region="us-west-2"
+                )
+                )
+                self.index = self.pc.Index(self.index_name)
+                logger.info(f"Created new Pinecone index: {self.index_name}")
+                
         except Exception as e:
-            print(f"   ❌ Error initializing Pinecone index: {e}")
-            logger.error(f"Error initializing Pinecone index: {e}")
-            raise
+            logger.error(f"Error getting/creating index: {e}")
+
+    async def store_articles_batch_async(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict[str, int]:
+        """
+        Store multiple articles in batch with concurrent processing
+        
+        Args:
+            articles: List of articles to store
+            analysis_results: List of analysis results
+            
+        Returns:
+            Dictionary with success/error counts
+        """
+        if not self.index:
+            logger.error("Pinecone index not available")
+            return {'success_count': 0, 'error_count': len(articles), 'total_count': len(articles)}
+        
+        success_count = 0
+        error_count = 0
+        
+        # Process articles in batches for better performance
+        batch_size = 10
+        for i in range(0, len(articles), batch_size):
+            batch_articles = articles[i:i + batch_size]
+            batch_analyses = analysis_results[i:i + batch_size]
+            
+            # Process batch concurrently
+            batch_results = await self._process_batch_async(batch_articles, batch_analyses)
+            
+            success_count += batch_results['success_count']
+            error_count += batch_results['error_count']
+        
+        logger.info(f"Database batch storage complete: {success_count} successful, {error_count} errors")
+        return {
+            'success_count': success_count,
+            'error_count': error_count,
+            'total_count': len(articles)
+        }
+
+    async def _process_batch_async(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict[str, int]:
+        """
+        Process a batch of articles asynchronously
+        
+        Args:
+            articles: Batch of articles
+            analysis_results: Batch of analysis results
+            
+        Returns:
+            Dictionary with success/error counts
+        """
+        success_count = 0
+        error_count = 0
+        
+        # Create tasks for concurrent processing
+        tasks = []
+        for article, analysis in zip(articles, analysis_results):
+            task = self._store_single_article_async(article, analysis)
+            tasks.append(task)
+        
+        # Execute all tasks concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Count results
+        for result in results:
+            if isinstance(result, Exception):
+                error_count += 1
+                logger.error(f"Error storing article: {result}")
+            elif result:
+                success_count += 1
+        
+        return {
+            'success_count': success_count,
+            'error_count': error_count
+        }
+
+    async def _store_single_article_async(self, article: Dict, analysis_result: Dict) -> bool:
+        """
+        Store a single article asynchronously
+        
+        Args:
+            article: Article to store
+            analysis_result: Analysis result
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Generate embeddings concurrently
+            embedding_task = self._generate_embedding_async(article)
+            metadata_task = self._prepare_metadata_async(article, analysis_result)
+            
+            # Wait for both tasks to complete
+            embedding, metadata = await asyncio.gather(embedding_task, metadata_task)
+            
+            if not embedding:
+                return False
+            
+            # Store in database
+            article_id = hashlib.md5(article['url'].encode()).hexdigest()
+            
+            # Use ThreadPoolExecutor for synchronous Pinecone operations
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                await loop.run_in_executor(
+                    executor,
+                    lambda: self.index.upsert(
+                        vectors=[(article_id, embedding, metadata)],
+                        namespace="articles"
+                    )
+                )
+            
+            logger.info(f"Successfully stored article in database: {article.get('title', 'Unknown')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error storing article: {e}")
+            return False
+
+    async def _generate_embedding_async(self, article: Dict) -> Optional[List[float]]:
+        """
+        Generate embedding for article text asynchronously
+        
+        Args:
+            article: Article to generate embedding for
+            
+        Returns:
+            Embedding vector or None if failed
+        """
+        try:
+            from openai import OpenAI
+            import httpx
+            import os
+            
+            # Get OpenAI API key
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                logger.error("OPENAI_API_KEY not found")
+                return None
+            
+            # Create OpenAI client
+            client = OpenAI(api_key=api_key, http_client=httpx.Client(timeout=30.0))
+            
+            # Prepare text for embedding
+            text = article.get('text', '')
+            if not text:
+                return None
+            
+            # Truncate text if too long (OpenAI limit is 8191 tokens)
+            if len(text) > 8000:
+                text = text[:8000]
+            
+            # Generate embedding asynchronously
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                response = await loop.run_in_executor(
+                    executor,
+                    lambda: client.embeddings.create(
+                        model="text-embedding-3-small",
+                        input=text
+                    )
+                )
+            
+            return response.data[0].embedding
+            
+        except Exception as e:
+            logger.error(f"Error generating embedding: {e}")
+            return None
+
+    async def _prepare_metadata_async(self, article: Dict, analysis_result: Dict) -> Dict[str, Any]:
+        """
+        Prepare metadata for article storage asynchronously
+        
+        Args:
+            article: Article data
+            analysis_result: Analysis result
+            
+        Returns:
+            Metadata dictionary
+        """
+        try:
+            # Extract source
+            source = self.extract_clean_source(article)
+            
+            # Prepare metadata
+            metadata = {
+                'url': article.get('url', ''),
+                'title': article.get('title', ''),
+                'source': source,
+                'publish_date': article.get('publish_date'),
+                'sentiment_score': analysis_result.get('sentiment_analysis', {}).get('score', 0),
+                'sentiment_category': analysis_result.get('sentiment_analysis', {}).get('category', 'Neutral'),
+                'risk_score': analysis_result.get('risk_analysis', {}).get('overall_risk_score', 0),
+                'risk_confidence': analysis_result.get('risk_analysis', {}).get('risk_confidence', 0),
+                'analysis_timestamp': analysis_result.get('analysis_timestamp', ''),
+                'text_length': len(article.get('text', '')),
+                'keywords': article.get('keywords', []),
+                'authors': article.get('authors', [])
+            }
+            
+            return metadata
+            
+        except Exception as e:
+            logger.error(f"Error preparing metadata: {e}")
+            return {}
     
     def generate_embedding(self, text: str) -> List[float]:
         """Generate OpenAI embedding for text"""
         try:
             from openai import OpenAI
+            import httpx
             import httpx
             client = OpenAI(api_key=self.openai_api_key, http_client=httpx.Client(
                 timeout=httpx.Timeout(30.0),
