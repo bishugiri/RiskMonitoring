@@ -1,5 +1,5 @@
 {
-    "run_time": "08:00",
+    "run_time": "06:00",
     "timezone": "US/Eastern",
     "articles_per_entity": 5,
     "entities": [
@@ -28,8 +28,7 @@
     "use_openai": true,
     "email_enabled": true,
     "email_recipients": [
-        "be2020se709@gces.edu.np",
-        "giribishu@gmail.com"
+        "be2020se709@gces.edu.np"
     ],
     "enable_pinecone_storage": true,
     "enable_dual_sentiment": true,

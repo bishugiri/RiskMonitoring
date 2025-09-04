@@ -818,7 +818,7 @@ def navigation_sidebar():
         st.rerun()
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
-def display_article_card(article: Dict):
+def display_article_card(article: Dict, index: int = None):
     """Renders a card for a single article with sentiment and details."""
     sentiment = article.get('sentiment_category', 'Neutral').lower()
     color_class = f"sentiment-{sentiment}"
@@ -900,7 +900,7 @@ def display_article_card(article: Dict):
                 height=300,
                 disabled=True,
                 help="Full article text with proper word wrapping",
-                key=f"article_text_{hash(article.get('title', ''))}"
+                key=f"article_text_display_{index}_{hash(article.get('title', ''))}" if index is not None else f"article_text_display_{hash(article.get('title', ''))}"
             )
         else:
             st.info("No article text available.")
@@ -925,8 +925,8 @@ def main():
         if not st.session_state.articles:
             st.info("💡 Run a news analysis to see the latest results here.")
         
-        for article in st.session_state.articles[:5]:
-            display_article_card(article)
+        for i, article in enumerate(st.session_state.articles[:5], 1):
+            display_article_card(article, i)
 
     # --- News Analysis View ---
     elif st.session_state.current_page == "news_analysis":
@@ -945,6 +945,7 @@ def main():
                     "Counterparties",
                     value="\n".join(st.session_state.counterparties),
                     placeholder="e.g., Apple Inc\nGoldman Sachs\nJPMorgan Chase",
+                    key="counterparties_input"
                 )
                 st.session_state.counterparties = [c.strip() for c in counterparties_input.split("\n") if c.strip()]
             else:
@@ -1460,7 +1461,8 @@ def main():
                                         value=article_text[:1000] + "..." if len(article_text) > 1000 else article_text,
                                         height=200,
                                         disabled=True,
-                                        help="Article text excerpt with proper word wrapping"
+                                        help="Article text excerpt with proper word wrapping",
+                                        key=f"article_content_rag_{i}_{hash(article.get('title', ''))}"
                                     )
                                 else:
                                     st.info("No article text available.")
@@ -1533,7 +1535,7 @@ def main():
             entities_input = st.text_area(
                 "Companies (one per line)",
                 value=st.session_state.companies_input,
-                    height=200,
+                height=200,
                 help="Enter company names or stock symbols, one per line",
                 key="companies_textarea"
             )
@@ -1687,7 +1689,8 @@ def main():
                 "Keywords (one per line)",
                 value="\n".join(config.get("keywords", default_keywords)),
                 height=150,
-                help="Only articles containing these keywords will be analyzed"
+                help="Only articles containing these keywords will be analyzed",
+                key="keywords_input_scheduler"
             )
             config["keywords"] = [k.strip() for k in keywords_input.split("\n") if k.strip()]
             
@@ -1740,7 +1743,8 @@ def main():
                     "Email Recipients (one per line)",
                     value="\n".join(config.get("email_recipients", ["be2020se709@gces.edu.np"])),
                     height=100,
-                    help="Email addresses to receive daily reports"
+                    help="Email addresses to receive daily reports",
+                    key="email_recipients_input"
                 )
                 config["email_recipients"] = [r.strip() for r in recipients_input.split("\n") if r.strip()]
                 
