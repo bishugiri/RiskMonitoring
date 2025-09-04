@@ -51,6 +51,17 @@ check.py
 !.streamlit/secrets.toml.template
 !check.py.template
 
+# IDE and Editor files
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# User-specific directories
+~/
+
 # OS specific files
 .DS_Store
 Thumbs.db
