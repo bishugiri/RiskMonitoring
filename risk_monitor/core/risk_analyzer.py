@@ -16,7 +16,7 @@ import httpx
 from concurrent.futures import ThreadPoolExecutor
 
 from risk_monitor.config.settings import Config
-from risk_monitor.utils.sentiment import analyze_sentiment_sync, analyze_sentiment_lexicon
+from risk_monitor.utils.sentiment import analyze_sentiment_sync, analyze_sentiment_lexicon, analyze_sentiment_structured
 
 # Try to import PineconeDB, but handle gracefully if not available
 try:
@@ -854,8 +854,8 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             # Run both analyses concurrently
             sentiment_results, risk_results = await asyncio.gather(sentiment_task, risk_task)
         else:
-            # Use lexicon method for sentiment (faster)
-            sentiment_results = [self.analyze_sentiment_lexicon(article) for article in articles]
+            # Use lexicon method for sentiment (faster) - now with structured approach
+            sentiment_results = [self.analyze_sentiment_lexicon_structured(article) for article in articles]
             risk_results = await self.analyze_articles_batch_llm(articles, batch_size=5)
         
         # Combine results
@@ -890,7 +890,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             if sentiment_method == 'llm':
                 sentiment_result = await self.analyze_sentiment_llm_async(article)
             else:
-                sentiment_result = self.analyze_sentiment_lexicon(article)
+                sentiment_result = self.analyze_sentiment_lexicon_structured(article)
             
             # Perform risk analysis
             risk_result = await self.analyze_article_risk_llm(article)
@@ -910,7 +910,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
     
     async def analyze_sentiment_llm_async(self, article: Dict) -> Dict:
         """
-        Asynchronous LLM-based sentiment analysis
+        Asynchronous LLM-based sentiment analysis using structured approach
         """
         if not self.openai_client:
             return self._fallback_sentiment_analysis(article)
@@ -919,46 +919,33 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             title = article.get('title', '')
             text = article.get('text', '')
             
-            # Simplified prompt for faster processing
-            prompt = f"""Analyze the sentiment of this financial news article:
-
-Title: {title}
-Content: {text[:1000]}...
-
-Provide sentiment analysis in JSON format:
-{{
-  "score": <sentiment_score_between_-1_and_1>,
-  "category": "<Positive|Negative|Neutral>",
-  "confidence": <confidence_between_0_and_1>,
-  "justification": "<brief_explanation>"
-}}"""
-
-            response = await asyncio.get_event_loop().run_in_executor(
-                None, 
-                lambda: self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.3,
-                    max_tokens=200
-                )
-            )
+            # Use the new structured sentiment analysis
+            result = await analyze_sentiment_structured(text, title, self.config.get_openai_api_key())
             
-            content = response.choices[0].message.content
-            try:
-                result = json.loads(content)
-                return {
-                    'score': float(result.get('score', 0)),
-                    'category': result.get('category', 'Neutral'),
-                    'confidence': float(result.get('confidence', 0.5)),
-                    'justification': result.get('justification', '')
-                }
-            except (json.JSONDecodeError, ValueError) as e:
-                self.logger.warning(f"Failed to parse LLM response: {e}")
-                return self._fallback_sentiment_analysis(article)
+            # Convert structured result to legacy format for compatibility
+            return {
+                'score': result.get('sentiment_score', 0),
+                'category': self._convert_score_to_category(result.get('sentiment_score', 0)),
+                'confidence': result.get('confidence', 0.5),
+                'justification': result.get('reasoning', ''),
+                'entity': result.get('entity', 'Unknown'),
+                'event_type': result.get('event_type', 'other'),
+                'key_quotes': result.get('key_quotes', []),
+                'summary': result.get('summary', '')
+            }
                 
         except Exception as e:
             self.logger.error(f"Error in async sentiment analysis: {e}")
             return self._fallback_sentiment_analysis(article)
+    
+    def _convert_score_to_category(self, score: float) -> str:
+        """Convert sentiment score to category"""
+        if score > 0.1:
+            return 'Positive'
+        elif score < -0.1:
+            return 'Negative'
+        else:
+            return 'Neutral'
     
     def _fallback_analysis(self, article: Dict, sentiment_method: str = 'llm') -> Dict:
         """
@@ -980,9 +967,31 @@ Provide sentiment analysis in JSON format:
         """
         return analyze_sentiment_sync(article.get('text', ''))
     
+    def analyze_sentiment_lexicon_structured(self, article: Dict) -> Dict:
+        """
+        Lexicon-based structured sentiment analysis for an article
+        """
+        text = article.get('text', '')
+        title = article.get('title', '')
+        
+        # Use the new structured lexicon analysis
+        result = analyze_sentiment_lexicon_structured(text, title)
+        
+        # Convert to legacy format for compatibility
+        return {
+            'score': result.get('sentiment_score', 0),
+            'category': self._convert_score_to_category(result.get('sentiment_score', 0)),
+            'confidence': result.get('confidence', 0.5),
+            'justification': result.get('reasoning', ''),
+            'entity': result.get('entity', 'Unknown'),
+            'event_type': result.get('event_type', 'other'),
+            'key_quotes': result.get('key_quotes', []),
+            'summary': result.get('summary', '')
+        }
+    
     def analyze_sentiment_lexicon(self, article: Dict) -> Dict:
         """
-        Lexicon-based sentiment analysis for an article
+        Legacy lexicon-based sentiment analysis for an article
         """
         text = article.get('text', '')
         return analyze_sentiment_lexicon(text)

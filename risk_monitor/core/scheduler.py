@@ -21,7 +21,7 @@ from openai import OpenAI
 from risk_monitor.core.news_collector import NewsCollector
 from risk_monitor.core.risk_analyzer import RiskAnalyzer
 from risk_monitor.config.settings import Config
-from risk_monitor.utils.sentiment import analyze_sentiment_lexicon
+from risk_monitor.utils.sentiment import analyze_sentiment_lexicon, analyze_sentiment_structured, analyze_sentiment_lexicon_structured
 from risk_monitor.utils.emailer import send_html_email, format_daily_summary_html, format_detailed_email_html
 
 # Try to import PineconeDB, but handle gracefully if not available
@@ -191,12 +191,12 @@ class NewsScheduler:
             return []
     
     async def analyze_sentiment_dual_async(self, articles: List[Dict]) -> List[Dict]:
-        """Analyze sentiment using both LLM and lexicon methods"""
-        logger.info(f"Performing dual sentiment analysis for {len(articles)} articles")
+        """Analyze sentiment using both LLM and lexicon methods with structured approach"""
+        logger.info(f"Performing dual structured sentiment analysis for {len(articles)} articles")
         
         # Create tasks for both LLM and lexicon analysis
-        llm_task = self.analyze_sentiment_with_openai_async(articles) if self.config.use_openai else None
-        lexicon_task = self.analyze_sentiment_with_lexicon_async(articles)
+        llm_task = self.analyze_sentiment_with_openai_structured_async(articles) if self.config.use_openai else None
+        lexicon_task = self.analyze_sentiment_with_lexicon_structured_async(articles)
         
         # Run both analyses concurrently
         tasks = [lexicon_task]
@@ -213,32 +213,32 @@ class NewsScheduler:
             for i, article in enumerate(lexicon_results):
                 if i < len(llm_results):
                     article['llm_sentiment'] = llm_results[i].get('sentiment_analysis', {})
-                    article['sentiment_method'] = 'dual'
+                    article['sentiment_method'] = 'dual_structured'
                 else:
-                    article['sentiment_method'] = 'lexicon_only'
+                    article['sentiment_method'] = 'lexicon_structured_only'
         else:
             for article in lexicon_results:
-                article['sentiment_method'] = 'lexicon_only'
+                article['sentiment_method'] = 'lexicon_structured_only'
         
         return lexicon_results
     
-    async def analyze_sentiment_with_lexicon_async(self, articles: List[Dict]) -> List[Dict]:
-        """Analyze sentiment using lexicon-based method asynchronously"""
-        logger.info(f"Analyzing sentiment for {len(articles)} articles using lexicon (async)")
+    async def analyze_sentiment_with_lexicon_structured_async(self, articles: List[Dict]) -> List[Dict]:
+        """Analyze sentiment using lexicon-based structured method asynchronously"""
+        logger.info(f"Analyzing sentiment for {len(articles)} articles using structured lexicon (async)")
         
         # Use thread pool for CPU-bound lexicon analysis
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
             processed_articles = await loop.run_in_executor(
                 executor,
-                self._analyze_with_lexicon,
+                self._analyze_with_lexicon_structured,
                 articles
             )
         
         return processed_articles
     
-    async def analyze_sentiment_with_openai_async(self, articles: List[Dict]) -> List[Dict]:
-        """Analyze sentiment of articles using OpenAI API asynchronously"""
+    async def analyze_sentiment_with_openai_structured_async(self, articles: List[Dict]) -> List[Dict]:
+        """Analyze sentiment of articles using OpenAI API with structured approach asynchronously"""
         from openai import OpenAI
         
         # Get OpenAI API key from config
@@ -248,14 +248,14 @@ class NewsScheduler:
             follow_redirects=True
         ))
         
-        logger.info(f"Analyzing sentiment for {len(articles)} articles using OpenAI (async)")
+        logger.info(f"Analyzing sentiment for {len(articles)} articles using OpenAI structured (async)")
         
         # Create a list to store tasks
         tasks = []
         
         # Create a task for each article
         for i, article in enumerate(articles):
-            task = asyncio.create_task(self._analyze_article_sentiment(article, i, len(articles), client))
+            task = asyncio.create_task(self._analyze_article_sentiment_structured(article, i, len(articles), client))
             tasks.append(task)
         
         # Process all articles concurrently (with rate limiting)
@@ -264,73 +264,33 @@ class NewsScheduler:
         # Return the processed articles
         return processed_articles
         
-    async def _analyze_article_sentiment(self, article: Dict, index: int, total: int, client: OpenAI) -> Dict:
-        """Analyze sentiment for a single article asynchronously"""
+    async def _analyze_article_sentiment_structured(self, article: Dict, index: int, total: int, client: OpenAI) -> Dict:
+        """Analyze sentiment for a single article using structured approach asynchronously"""
         
         try:
-            # Combine title and text for analysis
-            text = f"{article.get('title', '')} {article.get('text', '')}"
+            # Get title and text
+            title = article.get('title', '')
+            text = article.get('text', '')
             
-            # Truncate text if too long (OpenAI has token limits)
-            if len(text) > 4000:
-                text = text[:4000]
+            # Use the new structured sentiment analysis
+            result = await analyze_sentiment_structured(text, title, Config.get_openai_api_key())
             
-            # Create prompt for sentiment analysis
-            prompt = f"""
-            You are a financial news sentiment analysis assistant. Analyze the sentiment of the following financial news article text. 
-            Provide your analysis in JSON format with the following structure:
-            {{
-              "score": <numerical score between -1.0 and 1.0>,
-              "category": "<Positive, Neutral, or Negative>",
-              "justification": "<brief explanation of your sentiment analysis>"
-            }}
-
-            Article text:
-            {text}
-
-            Focus on financial and market sentiment. Consider factors like:
-            - Market impact and investor sentiment
-            - Financial performance indicators
-            - Risk and opportunity assessment
-            - Overall market outlook
-            """
+            # Convert structured result to legacy format for compatibility
+            sentiment = {
+                'score': result.get('sentiment_score', 0),
+                'category': self._convert_score_to_category(result.get('sentiment_score', 0)),
+                'justification': result.get('reasoning', ''),
+                'entity': result.get('entity', 'Unknown'),
+                'event_type': result.get('event_type', 'other'),
+                'key_quotes': result.get('key_quotes', []),
+                'summary': result.get('summary', '')
+            }
             
-            # Call OpenAI API (using a thread pool since the OpenAI client is not async)
-            loop = asyncio.get_event_loop()
-            with ThreadPoolExecutor() as executor:
-                response = await loop.run_in_executor(
-                    executor,
-                    lambda: client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=300,
-                        temperature=0.2,
-                    )
-                )
+            # Add sentiment analysis to article
+            article['sentiment_analysis'] = sentiment
+            article['sentiment_method'] = 'llm_structured'
             
-            # Extract response
-            response_text = response.choices[0].message.content
-            
-            # Find JSON in response
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                sentiment = json.loads(json_str)
-                
-                # Add sentiment analysis to article
-                article['sentiment_analysis'] = sentiment
-                article['sentiment_method'] = 'llm'
-                
-                logger.info(f"Analyzed article {index+1}/{total}: {sentiment['category']} ({sentiment['score']})")
-            else:
-                logger.warning(f"Could not parse JSON from OpenAI response for article {index+1}")
-                # Add default sentiment
-                article['sentiment_analysis'] = {
-                    'score': 0.0,
-                    'category': 'Neutral',
-                    'justification': 'Could not analyze sentiment'
-                }
-                article['sentiment_method'] = 'llm_failed'
+            logger.info(f"Analyzed article {index+1}/{total}: {sentiment['category']} ({sentiment['score']}) - Entity: {sentiment['entity']}, Event: {sentiment['event_type']}")
             
             # Add a small delay to avoid rate limits (but allow other tasks to run)
             await asyncio.sleep(0.5)
@@ -341,11 +301,24 @@ class NewsScheduler:
             article['sentiment_analysis'] = {
                 'score': 0.0,
                 'category': 'Neutral',
-                'justification': f'Error analyzing sentiment: {str(e)}'
+                'justification': f'Error analyzing sentiment: {str(e)}',
+                'entity': 'Unknown',
+                'event_type': 'other',
+                'key_quotes': [],
+                'summary': 'Analysis failed'
             }
-            article['sentiment_method'] = 'llm_error'
+            article['sentiment_method'] = 'llm_structured_error'
         
         return article
+    
+    def _convert_score_to_category(self, score: float) -> str:
+        """Convert sentiment score to category"""
+        if score > 0.1:
+            return 'Positive'
+        elif score < -0.1:
+            return 'Negative'
+        else:
+            return 'Neutral'
     
     async def store_articles_in_pinecone_async(self, articles: List[Dict]) -> Dict[str, int]:
         """Store articles in Pinecone database asynchronously"""
@@ -537,8 +510,34 @@ class NewsScheduler:
                     
         return filtered_articles
         
+    def _analyze_with_lexicon_structured(self, articles: List[Dict]) -> List[Dict]:
+        """Analyze articles with lexicon-based structured sentiment analysis"""
+        for article in articles:
+            # Get title and text
+            title = article.get('title', '')
+            text = article.get('text', '')
+            
+            # Use the new structured lexicon analysis
+            result = analyze_sentiment_lexicon_structured(text, title)
+            
+            # Convert structured result to legacy format for compatibility
+            sentiment = {
+                'score': result.get('sentiment_score', 0),
+                'category': self._convert_score_to_category(result.get('sentiment_score', 0)),
+                'justification': result.get('reasoning', ''),
+                'entity': result.get('entity', 'Unknown'),
+                'event_type': result.get('event_type', 'other'),
+                'key_quotes': result.get('key_quotes', []),
+                'summary': result.get('summary', '')
+            }
+            
+            article['sentiment_analysis'] = sentiment
+            article['sentiment_method'] = 'lexicon_structured'
+            
+        return articles
+    
     def _analyze_with_lexicon(self, articles: List[Dict]) -> List[Dict]:
-        """Analyze articles with lexicon-based sentiment analysis"""
+        """Legacy method: Analyze articles with basic lexicon-based sentiment analysis"""
         for article in articles:
             # Combine title and text for analysis
             text = f"{article.get('title', '')} {article.get('text', '')}"

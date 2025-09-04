@@ -339,6 +339,70 @@ def load_custom_css():
     .sentiment-negative { border-left: 4px solid var(--error-red); }
     .sentiment-neutral { border-left: 4px solid #3498DB; }
     
+    /* Article text styling for better readability */
+    .article-card p {
+        line-height: 1.6;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        hyphens: auto;
+    }
+    
+    /* Text area styling for article content */
+    .stTextArea textarea {
+        font-family: 'Open Sans', sans-serif !important;
+        font-size: 14px !important;
+        line-height: 1.6 !important;
+        word-wrap: break-word !important;
+        overflow-wrap: break-word !important;
+        white-space: pre-wrap !important;
+        background-color: #ffffff !important;
+        border: 1px solid #dee2e6 !important;
+        border-radius: 6px !important;
+        padding: 12px !important;
+        color: #2C3E50 !important;
+        font-weight: normal !important;
+    }
+    
+    /* More specific styling for article content text areas */
+    .stTextArea textarea[data-testid="stTextArea"] {
+        color: #2C3E50 !important;
+        font-weight: normal !important;
+        background-color: #ffffff !important;
+    }
+    
+    /* Override any Streamlit default styling */
+    .stTextArea textarea:disabled {
+        color: #2C3E50 !important;
+        font-weight: normal !important;
+        background-color: #ffffff !important;
+        opacity: 1 !important;
+    }
+    
+    /* Force text color for all text areas */
+    .stTextArea textarea,
+    .stTextArea textarea:disabled,
+    .stTextArea textarea:enabled {
+        color: #2C3E50 !important;
+        font-weight: normal !important;
+        background-color: #ffffff !important;
+    }
+    
+    /* Additional specificity for article content */
+    .stTextArea textarea[data-testid="stTextArea"] {
+        color: #2C3E50 !important;
+        font-weight: normal !important;
+        background-color: #ffffff !important;
+    }
+    
+    /* Article title styling */
+    .article-title {
+        font-size: 1.4rem !important;
+        font-weight: 600 !important;
+        color: var(--primary-blue) !important;
+        margin-bottom: 0.5rem !important;
+        line-height: 1.3 !important;
+    }
+    
     /* Global component styling */
     h1, h2, h3, h4, h5, h6 { color: var(--primary-blue); font-family: 'Open Sans', sans-serif; }
     .stProgress > div > div > div > div { background-color: var(--primary-blue); }
@@ -762,6 +826,26 @@ def display_article_card(article: Dict):
     st.markdown(f'<div class="article-card {color_class}">', unsafe_allow_html=True)
     st.markdown(f'<h3 class="article-title">{article.get("title", "Untitled")}</h3>', unsafe_allow_html=True)
     
+    # Handle source information properly
+    source_info = article.get('source', {})
+    if isinstance(source_info, dict):
+        # Extract source details from dictionary
+        source_name = source_info.get('name', 'Unknown')
+        source_icon = source_info.get('icon', '')
+        authors = source_info.get('authors', [])
+        
+        # Format source display with icon and authors
+        source_display = source_name
+        if source_icon:
+            source_display = f"<img src='{source_icon}' width='16' height='16' style='vertical-align: middle; margin-right: 5px;' />{source_name}"
+        
+        if authors:
+            authors_str = ', '.join(authors) if isinstance(authors, list) else str(authors)
+            source_display += f" by {authors_str}"
+    else:
+        # Fallback for string source
+        source_display = str(source_info) if source_info else 'Unknown'
+    
     # Handle publish_date which can be string, datetime object, or None
     publish_date = article.get('publish_date')
     if publish_date:
@@ -776,7 +860,14 @@ def display_article_card(article: Dict):
             date_str = 'N/A'
     else:
         date_str = 'N/A'
-    st.markdown(f'<p style="color: var(--text-muted); font-size: 0.9rem;">**Source:** {article.get("source", "Unknown")} | **Published:** {date_str}</p>', unsafe_allow_html=True)
+    
+    # Display source and publish date with proper formatting
+    st.markdown(f'<p style="color: var(--text-muted); font-size: 0.9rem;"><strong>Source:</strong> {source_display} | <strong>Published:</strong> {date_str}</p>', unsafe_allow_html=True)
+    
+    # Add article URL if available
+    article_url = article.get('url') or article.get('link')
+    if article_url:
+        st.markdown(f'<p style="color: var(--text-muted); font-size: 0.9rem;"><strong>URL:</strong> <a href="{article_url}" target="_blank" style="color: #005A9C; text-decoration: none;">{article_url}</a></p>', unsafe_allow_html=True)
     
     st.markdown(f'<p>{article.get("summary", article.get("text", "No summary available"))[:300]}...</p>', unsafe_allow_html=True)
     
@@ -785,13 +876,34 @@ def display_article_card(article: Dict):
     st.markdown(f'<div style="text-align: right;"><span class="badge {badge_class}">{sentiment_label}</span></div>', unsafe_allow_html=True)
 
     with st.expander("Show Detailed Analysis"):
-        st.markdown(f"**Sentiment Score:** `{article.get('sentiment_score', 'N/A')}`")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown(f"**Sentiment Score:** `{article.get('sentiment_score', 'N/A')}`")
+        
+        with col2:
+            st.markdown(f"**Risk Score:** `{article.get('risk_score', 'N/A')}`")
+        
         if 'sentiment_justification' in article:
             st.info(f"**LLM Justification:** {article['sentiment_justification']}")
         else:
             st.info(f"**Lexicon Analysis:** Positive words: `{article.get('positive_count', 0)}`, Negative words: `{article.get('negative_count', 0)}`")
         
-        st.markdown(f"**Full Article Text:**\n```\n{article.get('text', 'No text found.')[:1000]}...\n```")
+        # Display full article text with better formatting and word wrap
+        st.markdown("**Full Article Text:**")
+        article_text = article.get('text', 'No text found.')
+        if article_text:
+            # Use st.text_area for better word wrap and readability
+            st.text_area(
+                "Article Content",
+                value=article_text,
+                height=300,
+                disabled=True,
+                help="Full article text with proper word wrapping",
+                key=f"article_text_{hash(article.get('title', ''))}"
+            )
+        else:
+            st.info("No article text available.")
     
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -903,12 +1015,13 @@ def main():
                         
                         for i, (article, analysis) in enumerate(zip(collected_articles, individual_analyses)):
                             # Merge article data with analysis results
+                            sentiment_analysis = analysis['sentiment_analysis']
                             article.update({
-                                'sentiment_score': analysis['sentiment_analysis']['score'],
-                                'sentiment_category': analysis['sentiment_analysis']['category'],
+                                'sentiment_score': sentiment_analysis['score'],
+                                'sentiment_category': sentiment_analysis['category'],
                                 'sentiment_method': st.session_state.sentiment_method,
-                                'sentiment_justification': analysis['sentiment_analysis'].get('justification', ''),
-                                'risk_score': analysis['risk_analysis']['overall_risk_score'],  # Fixed: use correct field name
+                                'sentiment_justification': sentiment_analysis.get('justification', ''),
+                                'risk_score': analysis['risk_analysis']['overall_risk_score'],
                                 'risk_categories': analysis['risk_analysis']['risk_categories']
                             })
                             st.session_state.articles.append(article)
@@ -1309,7 +1422,19 @@ def main():
                                 col1, col2 = st.columns([2, 1])
                                 
                                 with col1:
-                                    st.markdown(f"**Source:** {article.get('source', 'Unknown')}")
+                                    # Handle source information properly
+                                    source_info = article.get('source', {})
+                                    if isinstance(source_info, dict):
+                                        source_name = source_info.get('name', 'Unknown')
+                                        authors = source_info.get('authors', [])
+                                        source_display = source_name
+                                        if authors:
+                                            authors_str = ', '.join(authors) if isinstance(authors, list) else str(authors)
+                                            source_display += f" by {authors_str}"
+                                    else:
+                                        source_display = str(source_info) if source_info else 'Unknown'
+                                    
+                                    st.markdown(f"**Source:** {source_display}")
                                     st.markdown(f"**URL:** {article.get('url', 'N/A')}")
                                     st.markdown(f"**Published:** {article.get('publish_date', 'Unknown')}")
                                     if article.get('authors'):
@@ -1328,7 +1453,17 @@ def main():
                                     st.write(', '.join(article.get('keywords', [])))
                                 
                                 st.markdown("**Full Text (excerpt):**")
-                                st.code(article.get('text', 'No text available')[:500] + "...", language='text')
+                                article_text = article.get('text', 'No text available')
+                                if article_text:
+                                    st.text_area(
+                                        "Article Content",
+                                        value=article_text[:1000] + "..." if len(article_text) > 1000 else article_text,
+                                        height=200,
+                                        disabled=True,
+                                        help="Article text excerpt with proper word wrapping"
+                                    )
+                                else:
+                                    st.info("No article text available.")
                         
                         # Show pagination info if needed
                         if total_pages > 1:

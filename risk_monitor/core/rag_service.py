@@ -36,6 +36,11 @@ class RAGService:
         print(f"   Date Filter: {date_filter}")
         print("=" * 80)
         
+        # Check if this is a specific article request
+        query_type_info = self.classify_query_type(query)
+        if query_type_info['query_type'] in ['specific_article', 'full_article']:
+            return self._handle_specific_article_request(query, entity_filter, date_filter)
+        
         try:
             # Get total number of articles in database
             stats = self.pinecone_db.get_index_stats()
@@ -518,9 +523,19 @@ Analysis scope: Full article content and comprehensive analysis
         print("=" * 80)
         
         try:
-            # Format context
-            print(f"📝 Formatting context for LLM...")
-            context = self.format_context_for_llm(articles)
+            # Classify query type
+            query_type_info = self.classify_query_type(user_query)
+            query_type = query_type_info['query_type']
+            confidence = query_type_info['confidence']
+            matched_patterns = query_type_info['matched_patterns']
+            
+            print(f"📝 Query Type Classification:")
+            print(f"   Query: '{user_query}'")
+            print(f"   Type: {query_type} (Confidence: {confidence:.2f})")
+            print(f"   Matched Patterns: {matched_patterns}")
+            
+            # Format context based on query type
+            context = self.format_context_for_query_type(articles, query_type)
             print(f"✅ Context formatted: {len(context)} characters")
             
             # DEBUG: Show context preview
@@ -530,120 +545,9 @@ Analysis scope: Full article content and comprehensive analysis
             
             # Create system prompt
             print(f"📝 Creating system prompt...")
+            system_prompt = self.create_specialized_system_prompt(query_type, user_query)
+            print(f"✅ System prompt created: {len(system_prompt)} characters")
             
-            # Create system prompt
-            system_prompt = """You are an expert AI Financial Assistant specializing in financial risk monitoring and market analysis. You have access to a comprehensive database of analyzed financial news articles, company reports, and market data with COMPLETE metadata, full article text, and detailed sentiment/risk analysis.
-
-## YOUR EXPERTISE & CAPABILITIES:
-
-**Financial Analysis Expertise:**
-- Market sentiment analysis and trend identification
-- Company performance evaluation and risk assessment
-- Sector-specific insights and competitive analysis
-- Financial metrics interpretation and forecasting
-- Risk factor identification and impact assessment
-
-**Data Analysis Capabilities:**
-- Sentiment analysis with detailed scoring and categorization
-- Risk assessment across multiple categories (market, geopolitical, sector, regulatory)
-- Keyword-based risk indicator identification
-- Source credibility and bias evaluation
-- Temporal analysis and trend identification
-
-## COMPLETE DATA STRUCTURE YOU CAN ACCESS:
-
-**Complete Article Data:**
-- FULL ARTICLE TEXT: Complete article content stored in the 'text' field
-- Title, source, publish date, authors, URL, link
-- Summary, keywords, meta description, entity
-- Extraction timestamps and analysis methodology
-
-**Sentiment Analysis:**
-- Sentiment score (-1 to 1 scale) and category (Positive/Negative/Neutral)
-- Sentiment justification and detailed analysis
-- Positive/negative keyword counts and total relevant terms
-
-**Risk Analysis:**
-- Overall risk score and detailed risk categories
-- Specific risk indicators and keywords found
-- Risk severity scoring and categorization
-- Complete risk assessment data
-
-**Complete Metadata:**
-- All article metadata including source details, dates, authors
-- Matched keywords and entity information
-- Full analysis results with timestamps
-
-## RESPONSE GUIDELINES:
-
-**1. Complete Data Utilization:**
-- You have access to FULL ARTICLE TEXT for each article
-- Use ALL relevant articles from the database for complete analysis
-- Reference specific articles using [REFERENCE X] format
-- Include exact sentiment scores, risk scores, and specific data points
-- Provide source diversity by citing multiple sources and time periods
-
-**2. Query-Specific Responses:**
-- **"Summarize this article"**: Provide detailed summaries with key insights from the FULL TEXT
-- **"Show me the full article"** or **"provide me full article"**: Share the COMPLETE article text from the 'text' field
-- **"What does the article say about..."**: Use the FULL TEXT to answer specific questions
-- **"Give me the article with title..."** or **"provide me full article on this [title]"**: Find that exact article and provide its COMPLETE text content
-- **"What are the main points?"**: Extract key points from the FULL ARTICLE TEXT
-- **"provide me link"** or **"give me the link"**: Provide the exact URL from the article metadata
-
-**3. CRITICAL INSTRUCTIONS FOR SPECIFIC ARTICLE REQUESTS:**
-- When user asks for a specific article by title, you MUST find that exact article in the provided data
-- You MUST provide the complete text content from the 'text' field of that specific article
-- You MUST provide the exact URL from the metadata of that specific article
-- Do NOT provide summaries or analysis - provide the actual article content
-- Format the response as: "Here is the complete article: [FULL TEXT]" followed by "Link: [URL]"
-
-**4. Financial Intelligence:**
-- Offer actionable insights based on sentiment and risk analysis
-- Identify trends, patterns, and anomalies in the data
-- Provide context for financial implications and market impact
-- Suggest potential investment or risk mitigation strategies
-
-**5. User Query Types You Can Handle:**
-- **Article Summaries**: Provide detailed summaries with key insights from full text
-- **Full Article Content**: When user asks for "full article" or "complete article", provide the ENTIRE article text from the 'text' field
-- **Specific Article Requests**: When user asks for a specific article by title, find that exact article and provide its complete content
-- **Article Links**: When user asks for links, provide the exact URL from the metadata
-- **Sentiment Analysis**: Explain sentiment trends and specific scores
-- **Risk Assessment**: Analyze risk factors and their implications
-- **Company Analysis**: Evaluate company performance and outlook
-- **Market Trends**: Identify sector and market-wide patterns
-- **Comparative Analysis**: Compare companies, sectors, or time periods
-- **Data Queries**: Answer questions about specific data points or metrics
-
-**6. Response Flexibility:**
-- Choose the most appropriate response format based on the user's question
-- You can provide summaries, detailed analysis, bullet points, tables, or any format that best serves the user
-- Let the user's query guide your response structure
-- Be flexible and adaptive in your communication style
-- **CRITICAL**: When user asks for "full article" or specific article content, provide the COMPLETE text from the 'text' field, not just summaries
-
-**7. Professional Communication:**
-- Maintain a helpful, conversational tone
-- Use clear, accessible language while being technically accurate
-- Provide context for complex financial concepts
-- Be transparent about data limitations or uncertainties
-
-## IMPORTANT REMINDERS:
-
-- You have access to COMPLETE article text and metadata - use it for detailed responses
-- **CRITICAL**: When user asks for "full article" or specific article by title, provide the ENTIRE article text from the 'text' field
-- **CRITICAL**: When user asks for links, provide the exact URL from the article metadata
-- Choose the best output format for the user's specific question
-- Always cite specific articles and data points to support your analysis
-- Consider both positive and negative sentiment for balanced insights
-- Evaluate risk factors across multiple categories
-- Provide time-relevant context for financial analysis
-- Be helpful, accurate, and actionable in your responses
-- Format your response in the most useful way for the user's query
-
-Remember: You are a trusted financial advisor AI that provides data-driven insights based on comprehensive analysis of real financial news and market data with access to complete article content. When users ask for specific articles or full content, provide the complete text, not just summaries."""
-
             # Create user prompt with context
             user_prompt = f"""User Question: {user_query}
 
@@ -651,37 +555,32 @@ Here is the COMPLETE relevant data from your financial database with FULL ARTICL
 
 {context}
 
-As an expert AI Financial Assistant with access to complete article data, please provide a comprehensive, data-driven response that:
+As an expert AI Financial Assistant with access to complete article data, please provide a specialized response for this query type ({query_type}) that:
 
-**Analysis Requirements:**
-- Analyzes ALL available articles and data points from the database
-- References specific articles using [REFERENCE X] format to demonstrate comprehensive coverage
-- Includes exact sentiment scores, risk scores, and specific metadata details
-- Provides complete analysis covering all sentiment categories (Positive, Negative, Neutral) found
-- Uses precise data from the raw metadata and analysis results
-- Gives a complete picture based on the full dataset available
+**Query Type: {query_type}**
+**Confidence: {confidence:.2f}**
+**Matched Patterns: {matched_patterns}**
 
-**Query-Specific Response Guidelines:**
-- **For article summaries**: Provide detailed summaries with key insights from the FULL ARTICLE TEXT
-- **For full article requests**: Share the COMPLETE article text when requested
-- **For specific questions**: Use the FULL ARTICLE TEXT to provide precise answers
-- **For article searches**: Find and provide articles by title or content
-- **For data queries**: Use complete metadata and sentiment/risk analysis
+**Specialized Analysis Requirements:**
+- Focus on the specific query type and user intent
+- Use the appropriate response format for this query type
+- Leverage all relevant metadata and article content
+- Provide targeted insights based on the query classification
+- Include specific data points and references
 
-**Response Structure:**
-- Start with a direct answer to the user's specific question
-- Provide detailed analysis with specific data references and citations
-- Include relevant sentiment trends and risk assessment insights
-- Structure information logically with clear sections
-- End with actionable insights or recommendations when appropriate
+**Response Guidelines for {query_type}:**
+- Follow the specialized response format for this query type
+- Use the complete article text when relevant
+- Include specific sentiment scores, risk scores, and metadata
+- Provide actionable insights based on the query type
+- Structure the response appropriately for the user's intent
 
 **Complete Data Utilization:**
-- Reference multiple sources to show comprehensive analysis
-- Include specific data points from the raw metadata (sentiment scores, risk scores, keywords)
-- Cover all viewpoints and sentiment categories found in the data
-- Provide analysis that reflects the complete dataset, not just a subset
-- Use exact figures, dates, and metrics from the database
-- **Use the FULL ARTICLE TEXT for detailed responses and summaries**
+- Reference specific articles using [REFERENCE X] format
+- Include exact sentiment scores, risk scores, and metadata details
+- Use the FULL ARTICLE TEXT when relevant to the query type
+- Provide comprehensive analysis based on the complete dataset
+- Include source diversity and multiple perspectives
 
 **Professional Standards:**
 - Maintain helpful, conversational tone while being technically accurate
@@ -689,7 +588,7 @@ As an expert AI Financial Assistant with access to complete article data, please
 - Be transparent about data limitations or uncertainties
 - Offer actionable insights based on the comprehensive analysis
 
-Remember: You are a trusted financial advisor AI providing data-driven insights based on real financial news and market data analysis with access to complete article content."""
+Remember: You are a trusted financial advisor AI providing specialized, data-driven insights based on real financial news and market data analysis with access to complete article content. Tailor your response specifically to the query type: {query_type}."""
 
             # Generate response using OpenAI (new API)
             print(f"🤖 Calling OpenAI API...")
@@ -723,6 +622,8 @@ Remember: You are a trusted financial advisor AI providing data-driven insights 
             print(f"🤖 GENERATE RESPONSE - OUTPUT:")
             print(f"   Response length: {len(response_text)} characters")
             print(f"   Articles used: {len(articles)}")
+            print(f"   Query Type: {query_type}")
+            print(f"   Confidence: {confidence:.2f}")
             print("=" * 80)
             
             return {
@@ -730,7 +631,9 @@ Remember: You are a trusted financial advisor AI providing data-driven insights 
                 'articles_used': len(articles),
                 'query': user_query,
                 'timestamp': datetime.now().isoformat(),
-                'articles': articles
+                'articles': articles,
+                'query_type': query_type,
+                'confidence': confidence
             }
             
         except Exception as e:
@@ -740,7 +643,8 @@ Remember: You are a trusted financial advisor AI providing data-driven insights 
                 'articles_used': 0,
                 'query': user_query,
                 'timestamp': datetime.now().isoformat(),
-                'articles': []
+                'articles': [],
+                'error': str(e)
             }
     
     def chat_with_agent(self, user_query: str, top_k: int = None, conversation_context: str = "", entity_filter: str = None, date_filter: str = None) -> Dict[str, Any]:
@@ -899,3 +803,560 @@ Remember: You are a trusted financial advisor AI providing data-driven insights 
         except Exception as e:
             logger.error(f"Error getting available dates: {e}")
             return []
+
+    def _handle_specific_article_request(self, query: str, entity_filter: str = None, date_filter: str = None) -> List[Dict]:
+        """Handle specific article requests by searching for exact matches"""
+        print(f"🎯 HANDLING SPECIFIC ARTICLE REQUEST:")
+        print(f"   Query: '{query}'")
+        print(f"   Entity Filter: {entity_filter}")
+        print(f"   Date Filter: {date_filter}")
+        
+        try:
+            # Get all articles first
+            stats = self.pinecone_db.get_index_stats()
+            total_articles = stats.get('total_vector_count', 0)
+            all_articles = self.pinecone_db.get_all_articles(top_k=total_articles)
+            
+            # Apply filters
+            filtered_articles = all_articles
+            
+            # Apply date filter
+            if date_filter and date_filter != "All Dates":
+                filtered_articles = self._apply_date_filter(filtered_articles, date_filter)
+            
+            # Apply entity filter
+            if entity_filter and entity_filter != "All Companies":
+                filtered_articles = self._apply_entity_filter(filtered_articles, entity_filter)
+            
+            # Search for specific article matches
+            query_lower = query.lower()
+            matched_articles = []
+            
+            for article in filtered_articles:
+                title = article.get('title', '').lower()
+                text = article.get('text', '').lower()
+                
+                # Check for exact title matches
+                if any(keyword in title for keyword in ['article', 'about', 'titled', 'called']):
+                    # Extract potential article title from query
+                    potential_title = query_lower.replace('article about', '').replace('article on', '').replace('article titled', '').replace('article called', '').strip()
+                    if potential_title and potential_title in title:
+                        matched_articles.append(article)
+                        continue
+                
+                # Check for content matches
+                if any(keyword in text for keyword in query_lower.split()):
+                    matched_articles.append(article)
+                    continue
+                
+                # Check for source matches
+                source = article.get('source', '').lower()
+                if any(keyword in source for keyword in query_lower.split()):
+                    matched_articles.append(article)
+                    continue
+            
+            # If no specific matches found, return top semantic matches
+            if not matched_articles:
+                print(f"   ⚠️ No specific matches found, using semantic search")
+                return self.pinecone_db.search_similar_articles(query, top_k=10)
+            
+            print(f"   ✅ Found {len(matched_articles)} specific article matches")
+            return matched_articles
+            
+        except Exception as e:
+            print(f"   ❌ Error in specific article request: {e}")
+            logger.error(f"Error in specific article request: {e}")
+            return []
+
+    def _apply_date_filter(self, articles: List[Dict], date_filter: str) -> List[Dict]:
+        """Apply date filter to articles"""
+        try:
+            from datetime import datetime, timedelta
+            
+            if date_filter == "Last 7 days":
+                cutoff_date = datetime.now() - timedelta(days=7)
+            elif date_filter == "Last 30 days":
+                cutoff_date = datetime.now() - timedelta(days=30)
+            else:
+                cutoff_date = datetime.strptime(date_filter, "%Y-%m-%d")
+            
+            filtered_results = []
+            for article in articles:
+                article_date = self._parse_article_date(article)
+                if article_date >= cutoff_date:
+                    filtered_results.append(article)
+            
+            return filtered_results
+        except Exception as e:
+            logger.error(f"Error applying date filter: {e}")
+            return articles
+
+    def _apply_entity_filter(self, articles: List[Dict], entity_filter: str) -> List[Dict]:
+        """Apply entity filter to articles"""
+        entity_filter_lower = entity_filter.lower()
+        filtered_results = []
+        
+        for article in articles:
+            title = article.get('title', '').lower()
+            text = article.get('text', '').lower()
+            entity = article.get('entity', '').lower()
+            
+            if (entity_filter_lower in title or 
+                entity_filter_lower in text or 
+                entity_filter_lower in entity):
+                filtered_results.append(article)
+        
+        return filtered_results
+
+    def classify_query_type(self, query: str) -> Dict[str, Any]:
+        """Classify the type of query to determine the best response strategy"""
+        query_lower = query.lower()
+        
+        # Define query patterns
+        patterns = {
+            'sentiment_trend': [
+                'sentiment trend', 'overall sentiment', 'sentiment analysis', 
+                'how is the sentiment', 'sentiment for', 'sentiment of'
+            ],
+            'risk_analysis': [
+                'risk score', 'highest risk', 'risk indicators', 'risk factors',
+                'risk assessment', 'risk analysis', 'risk level'
+            ],
+            'comparison': [
+                'compare', 'comparison', 'between', 'versus', 'vs', 'difference',
+                'similar', 'different', 'contrast'
+            ],
+            'headlines': [
+                'headlines', 'headline', 'titles', 'article titles', 'news headlines',
+                'show me headlines', 'list headlines'
+            ],
+            'full_article': [
+                'full article', 'complete article', 'entire article', 'whole article',
+                'article content', 'article text', 'full text', 'complete text'
+            ],
+            'specific_article': [
+                'article about', 'article on', 'article titled', 'article called',
+                'find article', 'show me article', 'get article'
+            ],
+            'data_query': [
+                'how many', 'count', 'total', 'statistics', 'data', 'numbers',
+                'metrics', 'figures', 'summary stats'
+            ],
+            'trend_analysis': [
+                'trend', 'pattern', 'over time', 'development', 'evolution',
+                'change', 'growth', 'decline'
+            ],
+            'source_analysis': [
+                'source', 'sources', 'where', 'from where', 'which source',
+                'credibility', 'bias'
+            ],
+            'date_specific': [
+                'yesterday', 'today', 'this week', 'this month', 'recent',
+                'latest', 'newest', 'oldest'
+            ]
+        }
+        
+        # Check for matches
+        query_type = 'general'
+        confidence = 0.0
+        matched_patterns = []
+        
+        for pattern_type, pattern_list in patterns.items():
+            for pattern in pattern_list:
+                if pattern in query_lower:
+                    matched_patterns.append(pattern)
+                    if len(matched_patterns) == 1:  # First match
+                        query_type = pattern_type
+                        confidence = 0.8
+                    else:  # Multiple matches
+                        confidence = min(confidence + 0.1, 1.0)
+        
+        # Special handling for specific question types
+        if 'headline' in query_lower and 'day' in query_lower:
+            query_type = 'headline_of_day'
+            confidence = 0.9
+        
+        if any(word in query_lower for word in ['entity', 'entities', 'company', 'companies']):
+            query_type = 'entity_comparison'
+            confidence = 0.8
+        
+        # Additional specific patterns
+        if any(phrase in query_lower for phrase in ['what is the', 'what are the', 'what does the']):
+            if 'article' in query_lower:
+                query_type = 'specific_article'
+                confidence = 0.9
+        
+        if any(phrase in query_lower for phrase in ['show me', 'give me', 'find me']):
+            if 'article' in query_lower:
+                query_type = 'specific_article'
+                confidence = 0.8
+            elif 'headline' in query_lower:
+                query_type = 'headlines'
+                confidence = 0.8
+        
+        if any(phrase in query_lower for phrase in ['compare', 'comparison', 'between', 'versus', 'vs']):
+            query_type = 'comparison'
+            confidence = 0.9
+        
+        if any(phrase in query_lower for phrase in ['trend', 'pattern', 'over time', 'evolution']):
+            query_type = 'trend_analysis'
+            confidence = 0.8
+        
+        if any(phrase in query_lower for phrase in ['how many', 'count', 'total', 'statistics']):
+            query_type = 'data_query'
+            confidence = 0.9
+        
+        return {
+            'query_type': query_type,
+            'confidence': confidence,
+            'matched_patterns': matched_patterns,
+            'original_query': query
+        }
+
+    def create_specialized_system_prompt(self, query_type: str, query: str) -> str:
+        """Create a specialized system prompt based on query type"""
+        
+        base_prompt = """You are an expert AI Financial Assistant specializing in financial risk monitoring and market analysis. You have access to a comprehensive database of analyzed financial news articles with COMPLETE metadata, full article text, and detailed sentiment/risk analysis.
+
+## YOUR EXPERTISE & CAPABILITIES:
+- Financial analysis and market insights
+- Sentiment analysis and trend identification
+- Risk assessment and factor analysis
+- Company performance evaluation
+- Data-driven insights and recommendations
+
+## COMPLETE DATA STRUCTURE YOU CAN ACCESS:
+- **Full Article Text**: Complete article content in the 'text' field
+- **Sentiment Analysis**: Scores (-1 to 1) and categories (Positive/Negative/Neutral)
+- **Risk Analysis**: Risk scores and detailed risk categories
+- **Complete Metadata**: Titles, sources, dates, URLs, entities, analysis timestamps
+- **Entity Information**: Company names, tickers, and related entities
+
+## RESPONSE GUIDELINES:
+- Use ALL relevant articles from the database for comprehensive analysis
+- Reference specific articles using [REFERENCE X] format
+- Include exact sentiment scores, risk scores, and specific data points
+- Provide source diversity by citing multiple sources
+- Be helpful, accurate, and actionable in your responses"""
+
+        # Specialized prompts for different query types
+        specialized_prompts = {
+            'sentiment_trend': """
+## SENTIMENT TREND ANALYSIS SPECIALIZATION:
+- Analyze sentiment patterns across all relevant articles
+- Identify overall sentiment trends and shifts
+- Provide sentiment distribution statistics
+- Highlight significant sentiment changes
+- Include specific sentiment scores and categories
+- Show sentiment evolution over time if applicable
+
+**Response Format:**
+1. Overall sentiment summary with statistics
+2. Sentiment distribution breakdown
+3. Key sentiment drivers and factors
+4. Trend analysis and insights
+5. Recommendations based on sentiment data""",
+
+            'risk_analysis': """
+## RISK ANALYSIS SPECIALIZATION:
+- Analyze risk scores across all articles
+- Identify highest risk articles and factors
+- Categorize risk types (market, geopolitical, sector, regulatory)
+- Highlight risk indicators and keywords
+- Provide risk assessment insights
+- Compare risk levels across different entities/time periods
+
+**Response Format:**
+1. Overall risk assessment summary
+2. Highest risk articles and their scores
+3. Risk factor breakdown and analysis
+4. Risk indicators and keywords found
+5. Risk mitigation recommendations""",
+
+            'comparison': """
+## COMPARISON ANALYSIS SPECIALIZATION:
+- Compare entities, time periods, or categories
+- Identify similarities and differences
+- Provide comparative statistics and metrics
+- Highlight key differentiators
+- Show relative performance or sentiment
+- Include side-by-side analysis
+
+**Response Format:**
+1. Comparison overview and scope
+2. Side-by-side analysis with specific data
+3. Key differences and similarities
+4. Comparative insights and trends
+5. Recommendations based on comparison""",
+
+            'headlines': """
+## HEADLINES ANALYSIS SPECIALIZATION:
+- Provide comprehensive list of relevant headlines
+- Include source, date, and sentiment for each headline
+- Organize headlines by relevance or date
+- Highlight most significant headlines
+- Provide context for headline importance
+- Include full article links when available
+
+**Response Format:**
+1. Headlines summary and count
+2. Organized list of headlines with metadata
+3. Most significant headlines highlighted
+4. Context and importance analysis
+5. Links to full articles where relevant""",
+
+            'headline_of_day': """
+## HEADLINE OF THE DAY SPECIALIZATION:
+- Identify the most significant headline for the specified day
+- Provide the complete headline with source
+- Include full article text when requested
+- Explain why this headline is significant
+- Provide context and background
+- Include sentiment and risk analysis for the headline
+
+**Response Format:**
+1. Most significant headline with source
+2. Complete article text (when requested)
+3. Significance explanation and context
+4. Sentiment and risk analysis
+5. Full article link""",
+
+            'full_article': """
+## FULL ARTICLE SPECIALIZATION:
+- Provide the complete article text when requested
+- Include all article metadata (title, source, date, URL)
+- Format the article content clearly
+- Preserve original article structure
+- Include sentiment and risk context
+- Provide the exact URL for the article
+
+**Response Format:**
+1. Article title and source information
+2. Complete article text
+3. Article URL
+4. Sentiment and risk context
+5. Additional insights if relevant""",
+
+            'specific_article': """
+## SPECIFIC ARTICLE SPECIALIZATION:
+- Find and provide the exact article requested
+- Include complete article text and metadata
+- Provide the exact URL and source
+- Include sentiment and risk analysis
+- Verify article relevance to the query
+- Provide additional context if needed
+
+**Response Format:**
+1. Found article with complete metadata
+2. Complete article text
+3. Article URL and source
+4. Sentiment and risk analysis
+5. Relevance confirmation""",
+
+            'data_query': """
+## DATA QUERY SPECIALIZATION:
+- Provide specific statistics and metrics
+- Include exact counts and numbers
+- Show data distribution and patterns
+- Provide comprehensive data summary
+- Include relevant percentages and ratios
+- Highlight key data insights
+
+**Response Format:**
+1. Specific data statistics requested
+2. Data distribution and patterns
+3. Key metrics and percentages
+4. Data insights and trends
+5. Additional relevant data points""",
+
+            'trend_analysis': """
+## TREND ANALYSIS SPECIALIZATION:
+- Identify patterns and trends over time
+- Show evolution of sentiment, risk, or other metrics
+- Highlight significant changes and shifts
+- Provide trend explanations and context
+- Include predictive insights where possible
+- Show trend comparisons across entities
+
+**Response Format:**
+1. Trend overview and scope
+2. Pattern identification and analysis
+3. Significant changes and shifts
+4. Trend explanations and context
+5. Predictive insights and recommendations""",
+
+            'entity_comparison': """
+## ENTITY COMPARISON SPECIALIZATION:
+- Compare different companies or entities
+- Show relative performance and sentiment
+- Identify entity-specific trends
+- Provide comparative risk analysis
+- Highlight entity differentiators
+- Include entity-specific insights
+
+**Response Format:**
+1. Entity comparison overview
+2. Side-by-side entity analysis
+3. Relative performance metrics
+4. Entity-specific insights
+5. Comparative recommendations""",
+
+            'general': """
+## GENERAL ANALYSIS SPECIALIZATION:
+- Provide comprehensive analysis based on the query
+- Use all relevant data from the database
+- Include specific examples and references
+- Provide actionable insights
+- Cover multiple perspectives and viewpoints
+- Include sentiment and risk context
+
+**Response Format:**
+1. Direct answer to the query
+2. Comprehensive analysis with data
+3. Specific examples and references
+4. Multiple perspectives covered
+5. Actionable insights and recommendations"""
+        }
+        
+        # Get the specialized prompt for this query type
+        specialized_prompt = specialized_prompts.get(query_type, specialized_prompts['general'])
+        
+        return base_prompt + specialized_prompt
+
+    def format_context_for_query_type(self, articles: List[Dict], query_type: str) -> str:
+        """Format context specifically for the query type"""
+        
+        if not articles:
+            return "No relevant articles found in the database."
+        
+        # Basic context structure
+        context_parts = []
+        
+        # Dataset overview
+        context_parts.append(f"""## DATASET OVERVIEW
+Total relevant articles found: {len(articles)}
+Query type: {query_type}
+Analysis scope: Full article content and comprehensive metadata""")
+        
+        # Sentiment distribution
+        sentiment_counts = {}
+        for article in articles:
+            sentiment = article.get('sentiment_category', 'Unknown')
+            sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
+        
+        sentiment_dist = ', '.join([f"{k}: {v} articles" for k, v in sentiment_counts.items()])
+        context_parts.append(f"""## SENTIMENT DISTRIBUTION
+{sentiment_dist}""")
+        
+        # Risk score distribution for risk-related queries
+        if query_type in ['risk_analysis', 'comparison']:
+            risk_scores = [a.get('risk_score', 0) for a in articles if a.get('risk_score') is not None]
+            if risk_scores:
+                avg_risk = sum(risk_scores) / len(risk_scores)
+                max_risk = max(risk_scores)
+                min_risk = min(risk_scores)
+                context_parts.append(f"""## RISK SCORE DISTRIBUTION
+Average risk score: {avg_risk:.2f}
+Highest risk score: {max_risk:.2f}
+Lowest risk score: {min_risk:.2f}
+Articles with risk analysis: {len(risk_scores)}""")
+        
+        # Entity distribution for entity-related queries
+        if query_type in ['entity_comparison', 'comparison']:
+            entities = {}
+            for article in articles:
+                entity = article.get('entity', 'Unknown')
+                entities[entity] = entities.get(entity, 0) + 1
+            
+            entity_dist = ', '.join([f"{k}: {v} articles" for k, v in entities.items()])
+            context_parts.append(f"""## ENTITY DISTRIBUTION
+{entity_dist}""")
+        
+        # Complete article data
+        context_parts.append("## COMPLETE ARTICLE DATA")
+        
+        # Format articles based on query type
+        for i, article in enumerate(articles[:15], 1):  # Limit to 15 articles
+            title = article.get('title', 'No title')
+            source = article.get('source', 'Unknown source')
+            entity = article.get('entity', 'Unknown entity')
+            sentiment_score = article.get('sentiment_score', 'N/A')
+            sentiment_category = article.get('sentiment_category', 'Unknown')
+            risk_score = article.get('risk_score', 'N/A')
+            text = article.get('text', 'No text available')
+            url = article.get('url', 'No URL available')
+            publish_date = article.get('publish_date', 'Unknown date')
+            
+            # Format based on query type
+            if query_type == 'headlines':
+                article_format = f"""### [REFERENCE {i}] - {title}
+**Source:** {source}
+**Date:** {publish_date}
+**Sentiment:** {sentiment_category} (score: {sentiment_score})
+**Risk Score:** {risk_score}
+**URL:** {url}"""
+            elif query_type == 'full_article':
+                article_format = f"""### [REFERENCE {i}] - {title}
+**Complete Article Metadata:**
+- Title: {title}
+- Source: {source}
+- Date: {publish_date}
+- Entity: {entity}
+- URL: {url}
+- Sentiment: {sentiment_category} (score: {sentiment_score})
+- Risk Score: {risk_score}
+
+**COMPLETE ARTICLE TEXT:**
+{text}"""
+            else:
+                article_format = f"""### [REFERENCE {i}] - {title}
+**Source:** {source}
+**Date:** {publish_date}
+**Entity:** {entity}
+**Sentiment:** {sentiment_category} (score: {sentiment_score})
+**Risk Score:** {risk_score}
+**URL:** {url}
+**Text Preview:** {text[:200]}..."""
+            
+            context_parts.append(article_format)
+        
+        # Analysis instructions based on query type
+        if query_type == 'sentiment_trend':
+            instructions = """## ANALYSIS INSTRUCTIONS
+- Analyze sentiment patterns across all articles
+- Provide sentiment distribution statistics
+- Identify sentiment trends and shifts
+- Include specific sentiment scores and categories
+- Highlight significant sentiment changes"""
+        elif query_type == 'risk_analysis':
+            instructions = """## ANALYSIS INSTRUCTIONS
+- Analyze risk scores across all articles
+- Identify highest risk articles and factors
+- Categorize risk types and indicators
+- Provide risk assessment insights
+- Include specific risk scores and categories"""
+        elif query_type == 'headlines':
+            instructions = """## ANALYSIS INSTRUCTIONS
+- Provide comprehensive list of relevant headlines
+- Include source, date, and sentiment for each headline
+- Organize headlines by relevance or date
+- Highlight most significant headlines
+- Include full article links"""
+        elif query_type == 'full_article':
+            instructions = """## ANALYSIS INSTRUCTIONS
+- Provide complete article text when requested
+- Include all article metadata
+- Format article content clearly
+- Preserve original article structure
+- Include sentiment and risk context"""
+        else:
+            instructions = """## ANALYSIS INSTRUCTIONS
+- Provide comprehensive analysis based on the query
+- Use all relevant data from the database
+- Include specific examples and references
+- Provide actionable insights
+- Cover multiple perspectives and viewpoints"""
+        
+        context_parts.append(instructions)
+        
+        return "\n\n".join(context_parts)
