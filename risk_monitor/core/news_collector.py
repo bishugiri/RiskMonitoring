@@ -22,6 +22,13 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from risk_monitor.config.settings import Config
 
+# Try to import streamlit to check if we're in a Streamlit context
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
+
 class NewsCollector:
     """Collects news articles using SerpAPI and extracts their content"""
     
@@ -33,7 +40,7 @@ class NewsCollector:
         # Blocked domains that frequently return 403
         self.blocked_domains = {
             'bloomberg.com', 'seekingalpha.com', 'wsj.com', 'ft.com',
-            'reuters.com', 'cnbc.com', 'marketwatch.com'
+            'nytimes.com', 'washingtonpost.com', 'latimes.com', 'chicagotribune.com', 'thestreet.com'
         }
     
     def setup_logging(self):
@@ -58,6 +65,40 @@ class NewsCollector:
             return any(blocked in domain for blocked in self.blocked_domains)
         except:
             return False
+    
+    def _run_without_streamlit_context(self, func, *args, **kwargs):
+        """Run a function without Streamlit context to avoid ScriptRunContext errors"""
+        if STREAMLIT_AVAILABLE:
+            try:
+                # Clear any existing Streamlit context
+                import streamlit.runtime.scriptrunner as sr
+                if hasattr(sr, 'get_script_run_ctx'):
+                    ctx = sr.get_script_run_ctx()
+                    if ctx is not None:
+                        # We're in a Streamlit context, run in isolation
+                        import threading
+                        result = [None]
+                        exception = [None]
+                        
+                        def run_in_thread():
+                            try:
+                                result[0] = func(*args, **kwargs)
+                            except Exception as e:
+                                exception[0] = e
+                        
+                        thread = threading.Thread(target=run_in_thread)
+                        thread.start()
+                        thread.join()
+                        
+                        if exception[0]:
+                            raise exception[0]
+                        return result[0]
+            except Exception:
+                # If context isolation fails, run normally
+                pass
+        
+        # Run normally if not in Streamlit context or isolation failed
+        return func(*args, **kwargs)
 
     async def search_news_async(self, query: str = None, num_results: int = None) -> List[Dict]:
         """
@@ -104,25 +145,35 @@ class NewsCollector:
         return self._search_news_sync(params)
     
     def _search_news_sync(self, params: dict) -> List[Dict]:
-        """Synchronous implementation using requests library"""
+        """Fast synchronous implementation with optimized parameters"""
         import requests
         
-        # Retry logic for handling timeouts
-        for attempt in range(self.config.MAX_RETRIES):
+        # Fast retry logic - reduced attempts and timeout
+        max_retries = 2  # Reduced from 3
+        timeout = 30     # Reduced from 60 seconds
+        
+        for attempt in range(max_retries):
             try:
-                self.logger.info(f"Attempt {attempt + 1}/{self.config.MAX_RETRIES} - Making SerpAPI request...")
+                self.logger.info(f"Attempt {attempt + 1}/{max_retries} - Making SerpAPI request...")
+                
+                # Add optimized parameters for faster response
+                optimized_params = {
+                    **params,
+                    'safe': 'active',     # Safe search might be faster
+                    'gl': 'us',           # Specific country
+                    'hl': 'en',           # Specific language
+                    'filter': '0'         # No filtering
+                }
                 
                 response = requests.get(
                     self.config.SERPAPI_BASE_URL,
-                    params=params,
-                    timeout=self.config.REQUEST_TIMEOUT
+                    params=optimized_params,
+                    timeout=timeout
                 )
                 
                 self.logger.info(f"✅ SerpAPI response status: {response.status_code}")
                 response.raise_for_status()
                 data = response.json()
-                
-                self.logger.info(f"🔧 Response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                 
                 if 'news_results' in data:
                     articles = data['news_results']
@@ -130,37 +181,48 @@ class NewsCollector:
                     return articles
                 else:
                     self.logger.warning("No news results found in API response")
-                    self.logger.warning(f"Available keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
                     return []
                     
             except requests.exceptions.Timeout as e:
-                self.logger.warning(f"Timeout on attempt {attempt + 1}/{self.config.MAX_RETRIES}: {e}")
-                if attempt < self.config.MAX_RETRIES - 1:
-                    self.logger.info(f"Retrying in 2 seconds...")
+                self.logger.warning(f"Timeout on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    self.logger.info(f"Retrying in 1 second...")
                     import time
-                    time.sleep(2)
+                    time.sleep(1)  # Faster retry
                 else:
-                    self.logger.error("All retry attempts failed due to timeout")
-                    return []
+                    self.logger.error("SerpAPI timeout - trying fallback")
+                    return self._search_news_fallback(params)
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"Request error on attempt {attempt + 1}: {e}")
-                if attempt < self.config.MAX_RETRIES - 1:
-                    self.logger.info(f"Retrying in 2 seconds...")
-                    import time
-                    time.sleep(2)
+                if attempt < max_retries - 1:
+                    time.sleep(1)
                 else:
-                    return []
+                    return self._search_news_fallback(params)
             except Exception as e:
                 self.logger.error(f"Unexpected error on attempt {attempt + 1}: {str(e)}")
-                self.logger.error(f"Error type: {type(e).__name__}")
-                import traceback
-                self.logger.error(f"Full traceback: {traceback.format_exc()}")
-                if attempt < self.config.MAX_RETRIES - 1:
-                    self.logger.info(f"Retrying in 2 seconds...")
-                    import time
-                    time.sleep(2)
+                if attempt < max_retries - 1:
+                    time.sleep(1)
                 else:
                     return []
+    
+    def _search_news_fallback(self, params: dict) -> List[Dict]:
+        """Fallback method with basic parameters only"""
+        import requests
+        try:
+            self.logger.info("🔄 Trying fallback with basic parameters...")
+            response = requests.get(
+                self.config.SERPAPI_BASE_URL,
+                params=params,  # Original parameters only
+                timeout=45  # Slightly longer timeout for fallback
+            )
+            data = response.json()
+            if 'news_results' in data:
+                articles = data['news_results']
+                self.logger.info(f"Fallback successful: {len(articles)} articles")
+                return articles
+        except Exception as e:
+            self.logger.error(f"Fallback also failed: {e}")
+        return []
             
     def search_news(self, query: str = None, num_results: int = None) -> List[Dict]:
         """
@@ -278,22 +340,97 @@ class NewsCollector:
         Returns:
             List of extracted articles
         """
+        # Check if we should use sequential processing to avoid Streamlit context issues
+        if STREAMLIT_AVAILABLE and len(urls) <= 5:  # Use sequential for small batches
+            self.logger.info("Using sequential processing to avoid Streamlit context issues")
+            return self._extract_articles_sequential(urls)
+        
+        # Use context isolation to avoid Streamlit ScriptRunContext errors
+        try:
+            return self._run_without_streamlit_context(self._extract_articles_concurrent_isolated, urls, max_workers)
+        except Exception as e:
+            self.logger.warning(f"Concurrent extraction failed, falling back to sequential: {e}")
+            return self._extract_articles_sequential(urls)
+    
+    def _extract_articles_concurrent_isolated(self, urls: List[str], max_workers: int = 5) -> List[Dict]:
+        """Internal method that runs without Streamlit context"""
         extracted_articles = []
+        
+        # Create a standalone extraction function to avoid Streamlit context issues
+        def extract_single_article(url: str) -> Optional[Dict]:
+            """Extract a single article without Streamlit context dependencies"""
+            try:
+                # Skip blocked domains to avoid wasting time
+                if self._is_blocked_domain(url):
+                    self.logger.info(f"Skipping blocked domain: {url}")
+                    return None
+                
+                self.logger.info(f"Extracting content from: {url}")
+                
+                # Use newspaper3k with timeout and custom configuration
+                article = Article(url)
+                article.config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                article.config.request_timeout = 10
+                article.config.number_threads = 1
+                article.config.verbose = False
+                
+                # Set timeout for download
+                article.download()
+                article.parse()
+                
+                # Extract text content
+                text = article.text.strip()
+                
+                if not text or len(text) < 50:  # Minimum content threshold
+                    self.logger.warning(f"Insufficient text content extracted from {url}")
+                    return None
+                
+                return {
+                    'url': url,
+                    'title': article.title,
+                    'text': text,
+                    'publish_date': article.publish_date.isoformat() if article.publish_date else None,
+                    'authors': article.authors,
+                    'summary': article.summary,
+                    'keywords': article.keywords,
+                    'meta_description': article.meta_description,
+                    'extraction_time': time.time()
+                }
+                
+            except Exception as e:
+                self.logger.error(f"Error extracting content from {url}: {e}")
+                return None
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
-            future_to_url = {executor.submit(self.extract_article_content, url): url for url in urls}
+            future_to_url = {executor.submit(extract_single_article, url): url for url in urls}
             
             # Process completed tasks
-            for future in as_completed(future_to_url, timeout=30):  # 60 second timeout
+            for future in as_completed(future_to_url, timeout=30):  # 30 second timeout
                 url = future_to_url[future]
                 try:
-                    result = future.result(timeout=5)  # 15 second timeout per article
+                    result = future.result(timeout=5)  # 5 second timeout per article
                     if result:
                         extracted_articles.append(result)
                         self.logger.info(f"Successfully extracted: {result.get('title', 'Unknown')}")
                 except Exception as e:
                     self.logger.warning(f"Failed to extract {url}: {e}")
+        
+        return extracted_articles
+    
+    def _extract_articles_sequential(self, urls: List[str]) -> List[Dict]:
+        """Extract articles sequentially to avoid Streamlit context issues"""
+        extracted_articles = []
+        
+        for i, url in enumerate(urls, 1):
+            self.logger.info(f"Sequentially extracting article {i}/{len(urls)}: {url}")
+            try:
+                result = self.extract_article_content(url)
+                if result:
+                    extracted_articles.append(result)
+                    self.logger.info(f"Successfully extracted: {result.get('title', 'Unknown')}")
+            except Exception as e:
+                self.logger.warning(f"Failed to extract {url}: {e}")
         
         return extracted_articles
 
@@ -314,21 +451,27 @@ class NewsCollector:
     
     async def collect_articles_async(self, query: str = None, num_articles: int = None) -> List[Dict]:
         """
-        Asynchronously collect and extract content from news articles with performance optimizations
+        Fast collection: Request exactly N articles, filter blocked domains, extract content
         
         Args:
             query: Search query
-            num_articles: Number of articles to process
+            num_articles: Number of articles to process (N)
             
         Returns:
             List of dictionaries containing article data
         """
-        # Search for news articles using synchronous method for better compatibility
+        # N = exact number of articles requested
+        N = num_articles or self.config.NUM_ARTICLES
+        
+        self.logger.info(f"🚀 Fast Collection Strategy:")
+        self.logger.info(f"   Requesting exactly {N} articles from SerpAPI")
+        
+        # Search for news articles - request exactly N
         articles = self._search_news_sync({
             'q': query or self.config.SEARCH_QUERY,
             'api_key': Config.get_serpapi_key(),
             'engine': 'google_news',
-            'num': num_articles or self.config.NUM_ARTICLES,
+            'num': N,  # Request exactly N articles
             'tbm': 'nws'
         })
         
@@ -336,32 +479,49 @@ class NewsCollector:
             self.logger.error("No articles found from search")
             return []
         
-        # Limit the number of articles to process
-        if num_articles and len(articles) > num_articles:
-            self.logger.info(f"Limiting articles from {len(articles)} to {num_articles}")
-            articles = articles[:num_articles]
+        self.logger.info(f"✅ SerpAPI returned {len(articles)} articles")
         
-        # Extract URLs and filter out blocked domains
-        urls = []
+        # FORCE LIMITING: SerpAPI often ignores num parameter, so we limit manually
+        if len(articles) > N:
+            self.logger.info(f"🔧 SerpAPI ignored num parameter - limiting from {len(articles)} to {N}")
+            articles = articles[:N]  # Take first N articles (most relevant)
+        
+        # Filter out blocked domains and take available articles
+        filtered_articles = []
+        blocked_count = 0
+        
         for article in articles:
             url = article.get('link')
             if url and not self._is_blocked_domain(url):
-                urls.append(url)
+                filtered_articles.append(article)
+            else:
+                blocked_count += 1
         
-        self.logger.info(f"Processing {len(urls)} articles concurrently (filtered from {len(articles)})")
+        self.logger.info(f"🔍 Filtering Results:")
+        self.logger.info(f"   Blocked domains skipped: {blocked_count}")
+        self.logger.info(f"   Available articles: {len(filtered_articles)}")
         
-        # Extract articles concurrently
-        extracted_articles = self.extract_articles_concurrent(urls, max_workers=20)
+        if not filtered_articles:
+            self.logger.warning("All articles were from blocked domains")
+            return []
+        
+        # Extract URLs for content extraction
+        urls = [article.get('link') for article in filtered_articles]
+        
+        self.logger.info(f"⚡ Extracting content from {len(urls)} articles...")
+        
+        # Extract articles concurrently with reduced workers for speed
+        extracted_articles = self.extract_articles_concurrent(urls, max_workers=10)
         
         # Combine search metadata with extracted content
         final_articles = []
         for extracted in extracted_articles:
             # Find matching article metadata
-            matching_article = next((a for a in articles if a.get('link') == extracted['url']), {})
+            matching_article = next((a for a in filtered_articles if a.get('link') == extracted['url']), {})
             full_article = {**matching_article, **extracted}
             final_articles.append(full_article)
         
-        self.logger.info(f"Successfully extracted {len(final_articles)} articles")
+        self.logger.info(f"✅ Successfully processed {len(final_articles)} articles")
         return final_articles
         
     async def _process_article(self, article: Dict, index: int, total: int) -> Optional[Dict]:
