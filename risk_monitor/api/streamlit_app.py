@@ -475,11 +475,26 @@ def analyze_sentiment_lexicon(text: str) -> Dict:
     }
 
 def analyze_sentiment_sync(text: str, method: str = 'lexicon') -> Dict:
+    """Synchronous sentiment analysis wrapper that properly handles LLM vs lexicon methods"""
     if method == 'lexicon':
         return analyze_sentiment_lexicon(text)
     elif method == 'llm':
-        st.info("LLM-based sentiment analysis is processing...")
-        return analyze_sentiment_lexicon(text)
+        # Import the proper LLM sentiment analysis function
+        from risk_monitor.utils.sentiment import analyze_sentiment_sync as proper_analyze_sentiment_sync
+        try:
+            # Get OpenAI API key from config
+            config = Config()
+            openai_api_key = config.get_openai_api_key()
+            if openai_api_key:
+                st.info("LLM-based sentiment analysis is processing...")
+                return proper_analyze_sentiment_sync(text, 'llm', openai_api_key)
+            else:
+                st.warning("OpenAI API key not found, falling back to lexicon analysis")
+                return analyze_sentiment_lexicon(text)
+        except Exception as e:
+            st.error(f"LLM sentiment analysis failed: {e}")
+            st.info("Falling back to lexicon analysis")
+            return analyze_sentiment_lexicon(text)
     else:
         return analyze_sentiment_lexicon(text)
 
@@ -491,7 +506,7 @@ def initialize_session_state():
     if 'keywords' not in st.session_state: st.session_state.keywords = ""
     if 'current_page' not in st.session_state: st.session_state.current_page = "dashboard"
     if 'collect_news_trigger' not in st.session_state: st.session_state.collect_news_trigger = False
-    if 'sentiment_method' not in st.session_state: st.session_state.sentiment_method = "lexicon"
+    if 'sentiment_method' not in st.session_state: st.session_state.sentiment_method = "llm"
     if 'last_run_metadata' not in st.session_state: st.session_state.last_run_metadata = {}
     
     # Initialize AI Financial Assistant session state variables
@@ -884,10 +899,88 @@ def display_article_card(article: Dict, index: int = None):
         with col2:
             st.markdown(f"**Risk Score:** `{article.get('risk_score', 'N/A')}`")
         
-        if 'sentiment_justification' in article:
-            st.info(f"**LLM Justification:** {article['sentiment_justification']}")
+        # Enhanced Insight Display
+        st.markdown("---")
+        st.markdown("### 🧠 **Sentiment Analysis Insight**")
+        
+        # Check for different types of sentiment analysis data
+        sentiment_data = article.get('sentiment_analysis', {})
+        
+        # Priority order: reasoning > justification > key_factors > market_impact
+        insight_text = None
+        insight_source = None
+        
+        if isinstance(sentiment_data, dict):
+            # Structured analysis with reasoning
+            if sentiment_data.get('reasoning'):
+                insight_text = sentiment_data.get('reasoning')
+                insight_source = "Structured Analysis"
+            # LLM analysis with justification
+            elif sentiment_data.get('justification'):
+                insight_text = sentiment_data.get('justification')
+                insight_source = "LLM Analysis"
+            # Key factors
+            elif sentiment_data.get('key_factors'):
+                factors = sentiment_data.get('key_factors', [])
+                if isinstance(factors, list) and factors:
+                    insight_text = f"Key factors: {', '.join(factors)}"
+                    insight_source = "LLM Analysis"
+            # Market impact
+            elif sentiment_data.get('market_impact'):
+                insight_text = sentiment_data.get('market_impact')
+                insight_source = "LLM Analysis"
+        
+        # Fallback to direct article fields
+        if not insight_text:
+            if article.get('sentiment_justification'):
+                insight_text = article.get('sentiment_justification')
+                insight_source = "LLM Analysis"
+            elif article.get('reasoning'):
+                insight_text = article.get('reasoning')
+                insight_source = "Structured Analysis"
+        
+        # Debug: Show what data is available (remove this after testing)
+        if st.checkbox("🔍 Debug: Show Analysis Data", key=f"debug_{index}_{hash(article.get('title', ''))}"):
+            st.json({
+                'sentiment_data': sentiment_data,
+                'sentiment_justification': article.get('sentiment_justification'),
+                'sentiment_method': article.get('sentiment_method'),
+                'insight_text': insight_text,
+                'insight_source': insight_source
+            })
+        
+        # Display the insight
+        if insight_text:
+            st.success(f"**💡 Insight ({insight_source}):** {insight_text}")
+            
+            # Additional details if available
+            if isinstance(sentiment_data, dict):
+                if sentiment_data.get('confidence'):
+                    st.markdown(f"**Confidence Level:** `{sentiment_data.get('confidence', 'N/A')}`")
+                
+                if sentiment_data.get('entity'):
+                    st.markdown(f"**Main Entity:** `{sentiment_data.get('entity', 'N/A')}`")
+                
+                if sentiment_data.get('event_type'):
+                    st.markdown(f"**Event Type:** `{sentiment_data.get('event_type', 'N/A')}`")
+                
+                if sentiment_data.get('key_quotes'):
+                    quotes = sentiment_data.get('key_quotes', [])
+                    if quotes and isinstance(quotes, list) and quotes:
+                        st.markdown("**Key Evidence:**")
+                        for i, quote in enumerate(quotes[:3], 1):  # Show max 3 quotes
+                            st.markdown(f"• {quote}")
         else:
-            st.info(f"**Lexicon Analysis:** Positive words: `{article.get('positive_count', 0)}`, Negative words: `{article.get('negative_count', 0)}`")
+            # Fallback to lexicon analysis
+            positive_count = article.get('positive_count', 0)
+            negative_count = article.get('negative_count', 0)
+            st.info(f"**📊 Lexicon Analysis:** Found {positive_count} positive and {negative_count} negative financial indicators.")
+            if positive_count > negative_count:
+                st.markdown("*Overall positive sentiment due to more positive financial indicators.*")
+            elif negative_count > positive_count:
+                st.markdown("*Overall negative sentiment due to more negative financial indicators.*")
+            else:
+                st.markdown("*Neutral sentiment due to balanced positive and negative indicators.*")
         
         # Display full article text with better formatting and word wrap
         st.markdown("**Full Article Text:**")
@@ -900,7 +993,7 @@ def display_article_card(article: Dict, index: int = None):
                 height=300,
                 disabled=True,
                 help="Full article text with proper word wrapping",
-                key=f"article_text_display_{index}_{hash(article.get('title', ''))}" if index is not None else f"article_text_display_{hash(article.get('title', ''))}"
+                key=f"article_text_display_{index}_{hash(article.get('title', ''))}_{hash(article.get('url', ''))}" if index is not None else f"article_text_display_{hash(article.get('title', ''))}_{hash(article.get('url', ''))}"
             )
         else:
             st.info("No article text available.")
@@ -957,14 +1050,32 @@ def main():
             st.text_area("Keyword Filtering", value=st.session_state.keywords, placeholder="risk\nfinancial\nmarket\ncrisis", height=150, help="Only include articles containing these keywords.", key="keywords")
 
         with advanced_tab:
-            sentiment_method = st.selectbox("Sentiment Analysis Method", ["Lexicon Based", "LLM Based"], index=0, help="Lexicon is fast and rule-based; LLM is more nuanced but requires an OpenAI API key.", key="sentiment_method_select")
-            st.session_state.sentiment_method = sentiment_method.lower().replace(' ', '_')
+            sentiment_method = st.selectbox("Sentiment Analysis Method", ["LLM Based", "Lexicon Based"], index=0, help="LLM is more nuanced and provides detailed insights; Lexicon is fast and rule-based.", key="sentiment_method_select")
+            # Convert to the format expected by RiskAnalyzer
+            if sentiment_method == "LLM Based":
+                st.session_state.sentiment_method = "llm"
+            else:
+                st.session_state.sentiment_method = "lexicon"
             
             # Auto-save functionality removed - all data stored in database
         
         st.markdown("---")
-        if st.button("📰 Collect and Analyze Articles", type="primary", use_container_width=True):
-            st.session_state.collect_news_trigger = True
+        
+        # Add clear results button if articles exist
+        if st.session_state.articles:
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("🗑️ Clear Previous Results", help="Clear all previously analyzed articles"):
+                    st.session_state.articles = []
+                    st.session_state.last_analysis_results = {}
+                    st.success("Previous results cleared! Run a new analysis to see updated insights.")
+                    st.rerun()
+            with col2:
+                if st.button("📰 Collect and Analyze Articles", type="primary", use_container_width=True):
+                    st.session_state.collect_news_trigger = True
+        else:
+            if st.button("📰 Collect and Analyze Articles", type="primary", use_container_width=True):
+                st.session_state.collect_news_trigger = True
             
         if st.session_state.collect_news_trigger:
             st.session_state.collect_news_trigger = False
@@ -1448,6 +1559,79 @@ def main():
                                 
                                 st.markdown("**Summary:**")
                                 st.info(article.get('summary', 'No summary available'))
+                                
+                                # Enhanced Insight Display for RAG
+                                st.markdown("---")
+                                st.markdown("### 🧠 **Sentiment Analysis Insight**")
+                                
+                                # Check for different types of sentiment analysis data
+                                sentiment_data = article.get('sentiment_analysis', {})
+                                
+                                # Priority order: reasoning > justification > key_factors > market_impact
+                                insight_text = None
+                                insight_source = None
+                                
+                                if isinstance(sentiment_data, dict):
+                                    # Structured analysis with reasoning
+                                    if sentiment_data.get('reasoning'):
+                                        insight_text = sentiment_data.get('reasoning')
+                                        insight_source = "Structured Analysis"
+                                    # LLM analysis with justification
+                                    elif sentiment_data.get('justification'):
+                                        insight_text = sentiment_data.get('justification')
+                                        insight_source = "LLM Analysis"
+                                    # Key factors
+                                    elif sentiment_data.get('key_factors'):
+                                        factors = sentiment_data.get('key_factors', [])
+                                        if isinstance(factors, list) and factors:
+                                            insight_text = f"Key factors: {', '.join(factors)}"
+                                            insight_source = "LLM Analysis"
+                                    # Market impact
+                                    elif sentiment_data.get('market_impact'):
+                                        insight_text = sentiment_data.get('market_impact')
+                                        insight_source = "LLM Analysis"
+                                
+                                # Fallback to direct article fields
+                                if not insight_text:
+                                    if article.get('sentiment_justification'):
+                                        insight_text = article.get('sentiment_justification')
+                                        insight_source = "LLM Analysis"
+                                    elif article.get('reasoning'):
+                                        insight_text = article.get('reasoning')
+                                        insight_source = "Structured Analysis"
+                                
+                                # Display the insight
+                                if insight_text:
+                                    st.success(f"**💡 Insight ({insight_source}):** {insight_text}")
+                                    
+                                    # Additional details if available
+                                    if isinstance(sentiment_data, dict):
+                                        if sentiment_data.get('confidence'):
+                                            st.markdown(f"**Confidence Level:** `{sentiment_data.get('confidence', 'N/A')}`")
+                                        
+                                        if sentiment_data.get('entity'):
+                                            st.markdown(f"**Main Entity:** `{sentiment_data.get('entity', 'N/A')}`")
+                                        
+                                        if sentiment_data.get('event_type'):
+                                            st.markdown(f"**Event Type:** `{sentiment_data.get('event_type', 'N/A')}`")
+                                        
+                                        if sentiment_data.get('key_quotes'):
+                                            quotes = sentiment_data.get('key_quotes', [])
+                                            if quotes and isinstance(quotes, list) and quotes:
+                                                st.markdown("**Key Evidence:**")
+                                                for j, quote in enumerate(quotes[:3], 1):  # Show max 3 quotes
+                                                    st.markdown(f"• {quote}")
+                                else:
+                                    # Fallback to lexicon analysis
+                                    positive_count = article.get('positive_count', 0)
+                                    negative_count = article.get('negative_count', 0)
+                                    st.info(f"**📊 Lexicon Analysis:** Found {positive_count} positive and {negative_count} negative financial indicators.")
+                                    if positive_count > negative_count:
+                                        st.markdown("*Overall positive sentiment due to more positive financial indicators.*")
+                                    elif negative_count > positive_count:
+                                        st.markdown("*Overall negative sentiment due to more negative financial indicators.*")
+                                    else:
+                                        st.markdown("*Neutral sentiment due to balanced positive and negative indicators.*")
                                 
                                 if article.get('keywords'):
                                     st.markdown("**Keywords:**")
