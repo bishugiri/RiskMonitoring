@@ -1,405 +1,414 @@
-# AI Financial Risk Monitoring System
+# Risk Monitor - Financial Analysis Tool
 
-A comprehensive AI-powered financial risk monitoring system that automatically collects, analyzes, and reports on financial news and market sentiment. Built with Python, Streamlit, and OpenAI's GPT models for advanced sentiment analysis and risk assessment.
+A comprehensive AI-powered financial risk monitoring system that provides real-time news analysis, intelligent insights, and automated market surveillance.
 
-## 🚀 Features
+## 🎯 Overview
 
-### Automated News Collection
-- **Real-time News Fetching**: Automatically collects financial news from multiple sources using SerpAPI
-- **Company-Specific Monitoring**: Monitor specific companies (NASDAQ-100 support) for risk-related news
-- **Keyword Filtering**: Advanced filtering based on risk keywords (financial, market, crisis, volatility, etc.)
-- **Scheduled Collection**: Daily automated news collection at configurable times
-
-### AI-Powered Analysis
-- **Dual Sentiment Analysis**: Combines lexicon-based and LLM (GPT-4) sentiment analysis
-- **Risk Assessment**: Comprehensive risk analysis across multiple categories
-- **AI Financial Assistant**: Interactive chat interface with advanced filtering (Date → Entity → Query)
-- **Contextual Understanding**: Advanced NLP for financial context comprehension
-
-### Data Management
-- **Pinecone Vector Database**: Scalable vector storage for semantic search
-- **Local Storage**: JSON-based local storage with indexing
-- **Data Export**: Comprehensive data export in structured formats
-- **Historical Analysis**: Track sentiment and risk trends over time
-
-### Automated Reporting
-- **Daily Email Reports**: Automated daily summaries sent via SMTP
-- **Detailed Analysis**: Comprehensive risk summaries with article links
-- **Top Risk Alerts**: Identification of most negative sentiment articles
-- **Configurable Recipients**: Multiple email recipient support
-
-### Configuration & Control
-- **Web-based Configuration**: Interactive scheduler configuration UI
-- **Real-time Status Monitoring**: Live scheduler status and process monitoring
-- **Email Subscription Controls**: Enable/disable email notifications
-- **Flexible Scheduling**: Configurable run times and timezones
+Risk Monitor is an advanced financial analysis platform that combines:
+- **Real-time News Collection** from multiple sources
+- **AI-Powered Analysis** using OpenAI GPT-4
+- **Vector Database Storage** with Pinecone
+- **Automated Scheduling** for continuous monitoring
+- **Intelligent Chat Assistant** for financial insights
 
 ## 🏗️ Architecture
 
-### System Architecture Overview
-
+### System Components
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      AI Financial Risk Monitoring System                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐           │
-│   │  Web Interface  │   │    Scheduler    │   │ AI Financial    │           │
-│   │   (Streamlit)   │   │  (Background)   │   │   Assistant     │           │
-│   └─────────────────┘   └─────────────────┘   └─────────────────┘           │
-│            │                  │                     │                       │
-│            └──────────────────┼─────────────────────┘                       │
-│                                │                                            │
-│   ┌────────────────────────────┼─────────────────────────────────────────┐  │
-│   │                   Core Business Logic Layer                          │  │
-│   │   ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────┐│  │
-│   │   │ News Collector│ │ Risk Analyzer │ │   RAG Service │ │ Scheduler ││  │
-│   │   └───────────────┘ └───────────────┘ └───────────────┘ └───────────┘│  │
-│   └──────────────────────────────────────────────────────────────────────┘  │
-│                                │                                            │
-│   ┌────────────────────────────┼─────────────────────────────────────────┐  │
-│   │                   Data Management Layer                              │  │
-│   │   ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────┐│  │
-│   │   │ Local Storage │ │  Pinecone DB  │ │  Email System │ │ File Sys. ││  │
-│   │   └───────────────┘ └───────────────┘ └───────────────┘ └───────────┘│  │
-│   └──────────────────────────────────────────────────────────────────────┘  │
-│                                │                                            │
-│   ┌────────────────────────────┼─────────────────────────────────────────┐  │
-│   │                   External Services Layer                            │  │
-│   │   ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────┐│  │
-│   │   │    SerpAPI    │ │    OpenAI     │ │   Pinecone    │ │   Gmail   ││  │
-│   │   │  (News Data)  │ │ (GPT Models)  │ │  (Vector DB)  │ │  (SMTP)   ││  │
-│   │   └───────────────┘ └───────────────┘ └───────────────┘ └───────────┘│  │
-│   └──────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Risk Monitor System                     │
+├─────────────────────────────────────────────────────────────┤
+│  Frontend (Streamlit)                                      │
+│  ├── News Analysis Page                                    │
+│  ├── AI Financial Assistant                               │
+│  └── Scheduler Configuration                              │
+├─────────────────────────────────────────────────────────────┤
+│  Backend Services                                          │
+│  ├── News Collector (SerpAPI)                             │
+│  ├── Risk Analyzer (OpenAI GPT-4)                         │
+│  ├── RAG Service (Vector Search)                          │
+│  └── Email Notification System                            │
+├─────────────────────────────────────────────────────────────┤
+│  Data Storage                                              │
+│  ├── Pinecone Vector Database                             │
+│  ├── Article Embeddings (3072 dimensions)                 │
+│  └── Metadata Storage                                      │
+├─────────────────────────────────────────────────────────────┤
+│  Background Services                                       │
+│  ├── Automated Scheduler                                  │
+│  ├── Daily News Collection                                │
+│  └── Email Report Generation                              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Project Structure
-
+### Data Flow
 ```
-RiskMonitoring/
-├── risk_monitor/                 # Main application package
-│   ├── api/                     # Web interface layer
-│   │   └── streamlit_app.py     # Streamlit web application
-│   │                           # - Dashboard, News Analysis
-│   │                           # - AI Financial Assistant, Scheduler Config
-│   │
-│   ├── config/                  # Configuration management layer
-│   │   └── settings.py          # Settings and environment configuration
-│   │                           # - API key management, environment variables
-│   │
-│   ├── core/                    # Core business logic layer
-│   │   ├── news_collector.py    # News collection engine
-│   │   │                       # - SerpAPI integration, article extraction
-│   │   │                       # - Content parsing, metadata extraction
-│   │   │
-│   │   ├── risk_analyzer.py     # Risk and sentiment analysis engine
-│   │   │                       # - Dual sentiment analysis (lexicon + LLM)
-│   │   │                       # - Risk categorization, scoring algorithms
-│   │   │
-│   │   ├── rag_service.py       # RAG (Retrieval-Augmented Generation) service
-│   │   │                       # - Semantic search, article retrieval
-│   │   │                       # - AI Financial Assistant backend
-│   │   │                       # - Advanced filtering: Date → Entity → Query
-│   │   │
-│   │   └── scheduler.py         # Automated scheduling engine
-│   │                           # - Daily news collection and analysis
-│   │                           # - Email reporting, status monitoring
-│   │
-│   ├── utils/                   # Utility and helper functions
-│   │   ├── pinecone_db.py       # Pinecone vector database integration
-│   │   │                       # - Vector storage, similarity search
-│   │   │                       # - Metadata management, indexing
-│   │   │
-│   │   ├── sentiment.py         # Sentiment analysis utilities
-│   │   │                       # - Lexicon-based sentiment analysis
-│   │   │                       # - Text preprocessing, scoring algorithms
-│   │   │
-│   │   └── emailer.py           # Email system utilities
-│   │                           # - SMTP integration, HTML email formatting
-│   │                           # - Daily reports, risk alerts
-│   │
-│   ├── scripts/                 # Scripts and entry points
-│   │   ├── run_app.py          # Web application entry point
-│   │   └── run_data_refresh.py # Scheduler entry point
-│   │
-│   └── models/                  # Data models and schemas
-│
-├── logs/                        # Application logs
-│   ├── risk_monitor.log        # Main application logs
-│   └── scheduler.log           # Scheduler-specific logs
-│
-├── output/                      # Output and export files
-├── venv/                        # Python virtual environment
-├── .streamlit/                  # Streamlit configuration
-├── .git/                        # Git version control
-│
-├── README.md                    # This file
-├── requirements.txt             # Python dependencies
-├── setup.py                     # Installation script
-├── install.py                   # Automated setup script
-├── run_app.sh                   # Web app startup script
-├── run_scheduler_with_email.sh  # Scheduler startup script
-├── scheduler_config.json        # Scheduler configuration
-├── .gitignore                   # Git ignore rules
-└── app.log                      # Application log file
+1. User Input → Streamlit Interface
+2. Entity Selection → NASDAQ-100 Companies
+3. News Collection → SerpAPI → Article Extraction
+4. AI Analysis → OpenAI GPT-4 → Sentiment & Risk Analysis
+5. Vector Storage → Pinecone → Embeddings + Metadata
+6. User Query → RAG System → Context Retrieval → AI Response
+7. Scheduled Tasks → Background Processing → Email Reports
 ```
 
-## 🔧 Installation & Setup
+## 🚀 Key Features
 
-### Prerequisites
-- Python 3.8+
-- Git
-- Required API keys (see Configuration section)
+### 📊 News Analysis
+- **Real-time Collection**: Automated news gathering from financial sources
+- **AI Analysis**: Sentiment scoring, risk assessment, and insights generation
+- **Entity Monitoring**: Track 92 NASDAQ-100 companies
+- **Vector Storage**: Efficient similarity search and retrieval
 
-### Quick Start
+### 🤖 AI Financial Assistant
+- **Conversational AI**: Natural language financial queries
+- **RAG Technology**: Retrieval-Augmented Generation for accurate responses
+- **Context Awareness**: Understands financial terminology and relationships
+- **Real-time Insights**: Access to latest market data and analysis
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd RiskMonitoring
-   ```
+### ⏰ Automated Scheduler
+- **Daily Execution**: Automated news collection and analysis
+- **Email Reports**: Comprehensive daily summaries
+- **Background Processing**: Continuous market monitoring
+- **Configurable**: Flexible scheduling and entity selection
 
-2. **Run automated setup**
-   ```bash
-   python install.py
-   ```
+## 📋 Prerequisites
 
-3. **Configure API keys** (see Configuration section)
+- **Python 3.11+**
+- **OpenAI API Key**
+- **SerpAPI Key**
+- **Pinecone API Key**
+- **Email SMTP Configuration** (optional)
 
-4. **Start the web application**
-   ```bash
-   ./run_app.sh
-   ```
+## 🛠️ Installation
 
-### Manual Setup
+### 1. Clone Repository
+```bash
+git clone https://github.com/bibitchhetri/financial-sentiment-analysis-agent.git
+cd financial-sentiment-analysis-agent
+```
 
-1. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+### 2. Create Virtual Environment
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
 
-3. **Configure environment variables** (see Configuration section)
+### 4. Configure Environment
+Create `.streamlit/secrets.toml`:
+```toml
+# OpenAI Configuration
+OPENAI_API_KEY = "your_openai_api_key"
 
-4. **Start the application**
-   ```bash
-   python -m risk_monitor.scripts.run_app
-   ```
+# SerpAPI Configuration
+SERPAPI_KEY = "your_serpapi_key"
+
+# Pinecone Configuration
+PINECONE_API_KEY = "your_pinecone_api_key"
+PINECONE_ENVIRONMENT = "us-east-1-aws"
+PINECONE_INDEX_NAME = "sentiment-db"
+
+# Email Configuration (Optional)
+EMAIL_SMTP_SERVER = "smtp.gmail.com"
+EMAIL_SMTP_PORT = 587
+EMAIL_USERNAME = "your_email@gmail.com"
+EMAIL_PASSWORD = "your_app_password"
+```
+
+## 🚀 Running the Application
+
+### Method 1: Using Shell Script (Recommended)
+```bash
+# Make script executable
+chmod +x run_app.sh
+
+# Run the application
+./run_app.sh
+```
+
+### Method 2: Direct Python Execution
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run Streamlit application
+streamlit run risk_monitor/scripts/run_app.py
+```
+
+### Method 3: Using Python Module
+```bash
+# From project root
+python3 -m streamlit run risk_monitor/scripts/run_app.py
+```
+
+## 🌐 Accessing the Application
+
+Once running, access the application at:
+- **Local**: http://localhost:8501
+- **Network**: http://your-ip:8501
+
+## 📱 Application Pages
+
+### 1. Dashboard
+- **Overview**: System status and recent activity
+- **Quick Stats**: Articles processed, entities monitored
+- **Recent Articles**: Latest analyzed news
+
+### 2. News Analysis
+- **Entity Selection**: Choose from 92 NASDAQ-100 companies
+- **Real-time Analysis**: Live sentiment and risk analysis
+- **Results Display**: Filtered and categorized results
+- **Export Options**: Download analysis results
+
+### 3. AI Financial Assistant
+- **Chat Interface**: Natural language financial queries
+- **Context Awareness**: Understands financial terminology
+- **Real-time Data**: Access to latest market analysis
+- **Conversation History**: Persistent chat sessions
+
+### 4. Scheduler Configuration
+- **Schedule Settings**: Configure daily execution time
+- **Entity Management**: Select companies to monitor
+- **Email Configuration**: Set up notification recipients
+- **Status Monitoring**: Real-time scheduler status
 
 ## ⚙️ Configuration
 
-### Required API Keys
-
-Set the following environment variables:
-
-```bash
-# News Collection
-export SERPAPI_KEY="your_serpapi_key"
-
-# AI Analysis
-export OPENAI_API_KEY="your_openai_api_key"
-
-# Vector Database
-export PINECONE_API_KEY="your_pinecone_api_key"
-
-# Email Notifications (Optional)
-export SMTP_HOST="smtp.gmail.com"
-export SMTP_PORT="587"
-export SMTP_USER="your_email@gmail.com"
-export SMTP_PASSWORD="your_app_password"
-export EMAIL_FROM="your_email@gmail.com"
-export EMAIL_RECIPIENTS="recipient1@email.com,recipient2@email.com"
-export EMAIL_SUBJECT_PREFIX="Risk Monitor"
+### Scheduler Configuration
+Edit `risk_monitor/scheduler_config.json`:
+```json
+{
+    "run_time": "08:00",
+    "timezone": "US/Eastern",
+    "articles_per_entity": 5,
+    "entities": ["AAPL - Apple Inc", "MSFT - Microsoft Corporation"],
+    "email_enabled": true,
+    "email_recipients": ["user@example.com"]
+}
 ```
 
-### Configuration Files
+### Application Settings
+- **Articles per Entity**: 1-20 (default: 5)
+- **Analysis Method**: LLM or Hybrid
+- **Cache Duration**: Configurable caching
+- **Retry Attempts**: 3 attempts with exponential backoff
 
-- **`scheduler_config.json`**: Scheduler settings, email preferences, monitoring targets
-- **`.streamlit/config.toml`**: Streamlit application configuration
+## 🔧 Background Services
 
-## 🚀 Usage
+### Starting the Scheduler
+```bash
+# Start scheduler manually
+python3 risk_monitor/scripts/run_data_refresh.py
 
-### Web Interface
+# Start scheduler in background
+nohup python3 risk_monitor/scripts/run_data_refresh.py > scheduler_background.log 2>&1 &
+```
 
-1. **Start the application**
-   ```bash
-   ./run_app.sh
-   ```
+### Monitoring Scheduler Status
+```bash
+# Check if scheduler is running
+pgrep -f "run_data_refresh.py"
 
-2. **Access the web interface**
-   - Open browser to `http://localhost:8501`
-   - Navigate through Dashboard, News Analysis, AI Financial Assistant
+# View scheduler logs
+tail -f logs/scheduler.log
 
-### AI Financial Assistant
+# View background logs
+tail -f scheduler_background.log
+```
 
-The AI Financial Assistant uses an advanced filtering system:
+### Stopping the Scheduler
+```bash
+# Stop scheduler
+pkill -f "run_data_refresh.py"
+```
 
-1. **Select Company/Entity**: Choose from available companies
-2. **Select Date**: Choose specific date or "All Dates"
-3. **Ask Questions**: Get AI-powered insights about financial data
+## 📊 Data Structure
 
-**Filtering Flow**: Date → Entity → Query (optimized for speed and accuracy)
+### Article Metadata
+```json
+{
+    "title": "Article Title",
+    "url": "https://example.com/article",
+    "source": "Financial News",
+    "published_date": "2025-01-01",
+    "article_extracted_date": "2025-01-01",
+    "entity": "AAPL - Apple Inc",
+    "sentiment_score": 0.75,
+    "risk_score": 0.25,
+    "sentiment_insight": "Positive sentiment due to strong earnings",
+    "risk_insight": "Low risk with stable market position",
+    "summary": "Article summary here",
+    "sentiment_category": "Positive",
+    "risk_category": "Low"
+}
+```
 
-### Automated Scheduler
+### Vector Embeddings
+- **Model**: OpenAI text-embedding-3-large
+- **Dimensions**: 3072
+- **Content**: Article title + content
+- **Storage**: Pinecone vector database
 
-1. **Start the scheduler**
-   ```bash
-   ./run_scheduler_with_email.sh
-   ```
+## 🔍 Troubleshooting
 
-2. **Configure via web interface**
-   - Set monitoring targets
-   - Configure email preferences
-   - Set schedule times
+### Common Issues
 
-## 📊 Key Components
+#### Application Won't Start
+```bash
+# Check Python version
+python3 --version
 
-### News Collector (`risk_monitor/core/news_collector.py`)
-- SerpAPI integration for news fetching
-- Article extraction and parsing
-- Metadata management
-- Content filtering
+# Verify dependencies
+pip list
 
-### Risk Analyzer (`risk_monitor/core/risk_analyzer.py`)
-- Dual sentiment analysis (lexicon + LLM)
-- Risk categorization and scoring
-- Comprehensive risk assessment
-- AI-powered analysis
+# Check environment variables
+echo $OPENAI_API_KEY
+```
 
-### RAG Service (`risk_monitor/core/rag_service.py`)
-- Semantic search capabilities
-- AI Financial Assistant backend
-- Advanced filtering system
-- Context management
+#### Scheduler Not Running
+```bash
+# Check process status
+pgrep -f "run_data_refresh.py"
 
-### Pinecone Integration (`risk_monitor/utils/pinecone_db.py`)
-- Vector database management
-- Similarity search
-- Metadata storage
-- Scalable data handling
+# Check configuration
+cat risk_monitor/scheduler_config.json
 
-## 🔍 Advanced Features
+# View error logs
+tail -f logs/scheduler.log
+```
 
-### Filtering System
-- **Date Filtering**: Temporal relevance filtering
-- **Entity Filtering**: Company-specific filtering
-- **Query Filtering**: Semantic similarity search
-- **Combined Approach**: Date → Entity → Query for optimal performance
+#### API Errors
+- **OpenAI**: Verify API key and billing
+- **SerpAPI**: Check API key and rate limits
+- **Pinecone**: Verify API key and index name
 
-### Email Reporting
-- **Daily Summaries**: Automated daily reports
-- **Risk Alerts**: Top negative sentiment articles
-- **Detailed Analysis**: Comprehensive risk assessment
-- **HTML Formatting**: Professional email formatting
-
-### Data Management
-- **Vector Storage**: Pinecone for semantic search
-- **Local Storage**: JSON-based local storage
-- **Data Export**: Structured data export
-- **Historical Tracking**: Trend analysis over time
-
-## 🛠️ Development
-
-### Project Structure
-- **Modular Design**: Clean separation of concerns
-- **Configurable**: Environment-based configuration
-- **Extensible**: Easy to add new features
-- **Maintainable**: Well-documented code
-
-### Adding New Features
-1. **Core Logic**: Add to `risk_monitor/core/`
-2. **Utilities**: Add to `risk_monitor/utils/`
-3. **UI Components**: Add to `risk_monitor/api/`
-4. **Configuration**: Update `risk_monitor/config/`
-
-### Testing
-- **Unit Tests**: Test individual components
-- **Integration Tests**: Test component interactions
-- **End-to-End Tests**: Test complete workflows
+### Log Files
+- **Application**: `logs/risk_monitor.log`
+- **Scheduler**: `logs/scheduler.log`
+- **Background**: `scheduler_background.log`
 
 ## 📈 Performance
 
-### Optimizations
-- **Efficient Filtering**: Date → Entity → Query reduces processing by 95%
-- **Vector Search**: Pinecone for fast semantic search
-- **Caching**: Intelligent caching of frequently accessed data
-- **Batch Processing**: Efficient batch operations
+### Optimization Features
+- **Caching**: 1-hour analysis cache, 30-minute sentiment cache
+- **Async Processing**: Non-blocking operations
+- **Batch Processing**: Efficient bulk operations
+- **Connection Pooling**: Reuse database connections
 
-### Scalability
-- **Vector Database**: Pinecone scales with data growth
-- **Modular Architecture**: Easy to scale individual components
-- **Configuration-Driven**: Flexible configuration for different scales
+### Monitoring
+- **Response Times**: Track API performance
+- **Memory Usage**: Monitor resource consumption
+- **Error Rates**: Track and analyze failures
+- **Cache Hit Rates**: Monitor caching effectiveness
 
 ## 🔒 Security
 
-### API Key Management
-- **Environment Variables**: Secure API key storage
-- **No Hardcoding**: Keys never stored in code
-- **Access Control**: Proper access controls
+### Security Measures
+- **API Key Protection**: Secure environment variable storage
+- **Input Validation**: Sanitize all user inputs
+- **Rate Limiting**: Respect API rate limits
+- **Error Handling**: Don't expose sensitive information
 
-### Data Privacy
-- **Local Processing**: Sensitive data processed locally
-- **Secure Storage**: Encrypted storage where needed
-- **Access Logging**: Comprehensive access logging
+### Privacy
+- **No Personal Data**: System doesn't store personal information
+- **Data Retention**: Configurable data retention policies
+- **Access Control**: Implement user authentication
+- **Compliance**: GDPR and data protection compliance
 
-## 📝 Logging
+## 📚 Documentation
 
-### Log Files
-- **`logs/risk_monitor.log`**: Main application logs
-- **`logs/scheduler.log`**: Scheduler-specific logs
-- **`app.log`**: Application-level logs
+### Detailed Documentation
+- **[News Analysis](NEWS_ANALYSIS_DOCUMENTATION.md)**: Complete news analysis system
+- **[AI Financial Assistant](AI_FINANCIAL_ASSISTANT_DOCUMENTATION.md)**: RAG system and chat interface
+- **[Scheduler](SCHEDULER_DOCUMENTATION.md)**: Automated background services
 
-### Log Levels
-- **DEBUG**: Detailed debugging information
-- **INFO**: General information
-- **WARNING**: Warning messages
-- **ERROR**: Error messages
-- **CRITICAL**: Critical errors
+### API Documentation
+- **OpenAI API**: GPT-4 integration for analysis
+- **SerpAPI**: Google Search API for news collection
+- **Pinecone API**: Vector database operations
+
+## 🚀 Deployment
+
+### Local Deployment
+```bash
+# Development
+streamlit run risk_monitor/scripts/run_app.py
+
+# Production
+gunicorn --bind 0.0.0.0:8501 risk_monitor.scripts.run_app:app
+```
+
+### Docker Deployment
+```dockerfile
+FROM python:3.11-slim
+COPY . /app
+WORKDIR /app
+RUN pip install -r requirements.txt
+EXPOSE 8501
+CMD ["streamlit", "run", "risk_monitor/scripts/run_app.py"]
+```
+
+### Cloud Deployment
+- **AWS**: EC2, ECS, Lambda
+- **Google Cloud**: Compute Engine, Cloud Run
+- **Azure**: Virtual Machines, Container Instances
 
 ## 🤝 Contributing
 
 ### Development Setup
-1. Fork the repository
-2. Create a feature branch
-3. Make changes
-4. Add tests
-5. Submit pull request
+```bash
+# Fork repository
+git clone https://github.com/your-username/financial-sentiment-analysis-agent.git
+
+# Create feature branch
+git checkout -b feature/new-feature
+
+# Make changes and test
+python3 -m pytest tests/
+
+# Commit changes
+git commit -m "Add new feature"
+
+# Push to branch
+git push origin feature/new-feature
+```
 
 ### Code Standards
-- **PEP 8**: Python code style
-- **Type Hints**: Use type annotations
+- **Python**: PEP 8 style guide
 - **Documentation**: Comprehensive docstrings
-- **Testing**: Maintain test coverage
+- **Testing**: Unit tests for all functions
+- **Type Hints**: Use type annotations
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🆘 Support
-
-### Common Issues
-- **API Key Errors**: Verify all API keys are set correctly
-- **Import Errors**: Ensure virtual environment is activated
-- **Database Errors**: Check Pinecone connection and credentials
+## 📞 Support
 
 ### Getting Help
-- **Documentation**: Check this README and code comments
-- **Issues**: Open an issue on GitHub
-- **Discussions**: Use GitHub Discussions for questions
+- **Issues**: Create GitHub issues for bugs
+- **Discussions**: Use GitHub discussions for questions
+- **Documentation**: Check detailed documentation files
+- **Logs**: Review log files for error details
 
-## 🔄 Version History
+### Contact
+- **Email**: kunwar.bibit7@gmail.com
+- **GitHub**: [@bibitchhetri](https://github.com/bibitchhetri)
+- **LinkedIn**: [Bibit Kunwar Chhetri](https://linkedin.com/in/bibit-kunwar-chhetri)
 
-### Current Version
-- **v2.0**: Advanced filtering system, improved performance
-- **v1.0**: Initial release with basic functionality
+## 🎉 Acknowledgments
 
-### Roadmap
-- **v2.1**: Enhanced AI capabilities
-- **v2.2**: Additional data sources
-- **v3.0**: Advanced analytics and reporting
+- **OpenAI**: For GPT-4 API and embeddings
+- **SerpAPI**: For news collection services
+- **Pinecone**: For vector database platform
+- **Streamlit**: For web application framework
+- **Community**: For open-source contributions
+
+---
+
+**Risk Monitor** - Intelligent Financial Risk Analysis Platform 🚀
