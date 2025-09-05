@@ -1,12 +1,11 @@
 {
-    "run_time": "01:00",
+    "run_time": "01:45",
     "timezone": "US/Eastern",
     "articles_per_entity": 5,
     "entities": [
-        "AAPL - Apple Inc",
-        "NVDA - NVIDIA Corporation",
-        "TSLA - Tesla Inc",
-        "AMZN - Amazon.com Inc"
+        "MSFT - Microsoft Corporation",
+        "META - Meta Platforms Inc",
+        "GOOGL - Alphabet Inc Class A"
     ],
     "keywords": [
         "risk",
