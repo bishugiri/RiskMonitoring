@@ -16,35 +16,35 @@ Risk Monitor is an advanced financial analysis platform that combines:
 ### System Components
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Risk Monitor System                     │
+│                    Risk Monitor System                      │
 ├─────────────────────────────────────────────────────────────┤
-│  Frontend (Streamlit)                                      │
-│  ├── News Analysis Page                                    │
-│  ├── AI Financial Assistant                               │
-│  └── Scheduler Configuration                              │
+│  Frontend (Streamlit)                                       │
+│  ├── News Analysis Page                                     │
+│  ├── AI Financial Assistant                                 │
+│  └── Scheduler Configuration                                │
 ├─────────────────────────────────────────────────────────────┤
-│  Backend Services                                          │
-│  ├── News Collector (SerpAPI)                             │
-│  ├── Risk Analyzer (OpenAI GPT-4)                         │
-│  ├── RAG Service (Vector Search)                          │
-│  └── Email Notification System                            │
+│  Backend Services                                           │
+│  ├── News Collector (SerpAPI)                               │
+│  ├── Risk Analyzer (OpenAI GPT-4)                           │
+│  ├── RAG Service (Vector Search)                            │
+│  └── Email Notification System                              │
 ├─────────────────────────────────────────────────────────────┤
-│  Data Storage                                              │
-│  ├── Pinecone Vector Database                             │
-│  ├── Article Embeddings (3072 dimensions)                 │
-│  └── Metadata Storage                                      │
+│  Data Storage                                               │
+│  ├── Pinecone Vector Database                               │
+│  ├── Article Embeddings (3072 dimensions)                   │
+│  └── Metadata Storage                                       │
 ├─────────────────────────────────────────────────────────────┤
-│  Background Services                                       │
-│  ├── Automated Scheduler                                  │
-│  ├── Daily News Collection                                │
-│  └── Email Report Generation                              │
+│  Background Services                                        │
+│  ├── Automated Scheduler                                    │
+│  ├── Daily News Collection                                  │
+│  └── Email Report Generation                                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 ```
 1. User Input → Streamlit Interface
-2. Entity Selection → NASDAQ-100 Companies
+2. Entity Selection → Counterparties/Companies
 3. News Collection → SerpAPI → Article Extraction
 4. AI Analysis → OpenAI GPT-4 → Sentiment & Risk Analysis
 5. Vector Storage → Pinecone → Embeddings + Metadata
@@ -84,8 +84,8 @@ Risk Monitor is an advanced financial analysis platform that combines:
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/bibitchhetri/financial-sentiment-analysis-agent.git
-cd financial-sentiment-analysis-agent
+git clone https://github.com/bishugiri/RiskMonitoring.git
+cd RiskMonitoring
 ```
 
 ### 2. Create Virtual Environment
@@ -353,17 +353,12 @@ EXPOSE 8501
 CMD ["streamlit", "run", "risk_monitor/scripts/run_app.py"]
 ```
 
-### Cloud Deployment
-- **AWS**: EC2, ECS, Lambda
-- **Google Cloud**: Compute Engine, Cloud Run
-- **Azure**: Virtual Machines, Container Instances
-
 ## 🤝 Contributing
 
 ### Development Setup
 ```bash
 # Fork repository
-git clone https://github.com/your-username/financial-sentiment-analysis-agent.git
+git clone https://github.com/your-username/RiskMonitoring.git
 
 # Create feature branch
 git checkout -b feature/new-feature
@@ -377,38 +372,6 @@ git commit -m "Add new feature"
 # Push to branch
 git push origin feature/new-feature
 ```
-
-### Code Standards
-- **Python**: PEP 8 style guide
-- **Documentation**: Comprehensive docstrings
-- **Testing**: Unit tests for all functions
-- **Type Hints**: Use type annotations
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📞 Support
-
-### Getting Help
-- **Issues**: Create GitHub issues for bugs
-- **Discussions**: Use GitHub discussions for questions
-- **Documentation**: Check detailed documentation files
-- **Logs**: Review log files for error details
-
-### Contact
-- **Email**: kunwar.bibit7@gmail.com
-- **GitHub**: [@bibitchhetri](https://github.com/bibitchhetri)
-- **LinkedIn**: [Bibit Kunwar Chhetri](https://linkedin.com/in/bibit-kunwar-chhetri)
-
-## 🎉 Acknowledgments
-
-- **OpenAI**: For GPT-4 API and embeddings
-- **SerpAPI**: For news collection services
-- **Pinecone**: For vector database platform
-- **Streamlit**: For web application framework
-- **Community**: For open-source contributions
-
 ---
 
-**Risk Monitor** - Intelligent Financial Risk Analysis Platform 🚀
+**Risk Monitor** - Intelligent Financial Risk Analysis Platform 
