@@ -631,7 +631,9 @@ def filter_articles_by_keywords(articles: List[Dict], keywords: str) -> List[Dic
 # --- Scheduler Configuration Functions ---
 def load_scheduler_config():
     """Load scheduler configuration from JSON file."""
-    config_file = "scheduler_config.json"
+    import os
+    # Use absolute path to risk_monitor directory scheduler config
+    config_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scheduler_config.json")
     try:
         with open(config_file, 'r') as f:
             return json.load(f)
@@ -641,7 +643,9 @@ def load_scheduler_config():
 
 def save_scheduler_config(config):
     """Save scheduler configuration to JSON file."""
-    config_file = "scheduler_config.json"
+    import os
+    # Use absolute path to risk_monitor directory scheduler config
+    config_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scheduler_config.json")
     try:
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=4)
@@ -661,9 +665,15 @@ def restart_scheduler():
         # Wait a moment for processes to stop
         time.sleep(2)
         
+        # Get the path to the run_data_refresh.py script
+        import os
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "run_data_refresh.py")
+        
         # Start new scheduler using proper nohup syntax
-        start_result = subprocess.run('nohup ./run_scheduler_with_email.sh > scheduler_background.log 2>&1 &', 
-                                    capture_output=True, text=True, shell=True)
+        start_result = subprocess.run(
+            f'nohup python3 {script_path} > scheduler_background.log 2>&1 &',
+            capture_output=True, text=True, shell=True
+        )
         
         if start_result.returncode == 0:
             return True, "Scheduler restarted successfully!"
@@ -688,8 +698,17 @@ def start_scheduler():
     """Start the scheduler."""
     try:
         import subprocess
-        result = subprocess.run('nohup ./run_scheduler_with_email.sh > scheduler_background.log 2>&1 &', 
-                              capture_output=True, text=True, shell=True)
+        import os
+        
+        # Get the path to the run_data_refresh.py script
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "run_data_refresh.py")
+        
+        # Start the scheduler in the background
+        result = subprocess.run(
+            f'nohup python3 {script_path} > scheduler_background.log 2>&1 &',
+            capture_output=True, text=True, shell=True
+        )
+        
         if result.returncode == 0:
             return True, "Scheduler started successfully!"
         else:
@@ -1934,16 +1953,16 @@ def main():
             with col2:
                 if st.button("➕ Add Selected", type="primary", disabled=selected_company == "Select a company..."):
                     if selected_company != "Select a company...":
-                        # Extract symbol from selected option
-                        symbol = selected_company.split(" - ")[0]
-                        if symbol not in config["entities"]:
-                            config["entities"].append(symbol)
+                        # Use full entity name (e.g., "AAPL - Apple Inc")
+                        full_entity_name = selected_company
+                        if full_entity_name not in config["entities"]:
+                            config["entities"].append(full_entity_name)
                             # Update the companies input field
                             st.session_state.companies_input = "\n".join(config["entities"])
-                            st.success(f"✅ Added {symbol}")
+                            st.success(f"✅ Added {full_entity_name}")
                             st.rerun()
                     else:
-                        st.warning(f"⚠️ {symbol} is already in the list")
+                        st.warning(f"⚠️ {full_entity_name} is already in the list")
         
         with analysis_tab:
             st.subheader("Analysis Configuration")

@@ -353,7 +353,10 @@ class NewsScheduler:
                     'analysis_method': article.get('sentiment_method', 'unknown')
                 }
                 
-                if self.pinecone_db.store_article(article, analysis_result):
+                # Get the selected entity from the article (set during collection)
+                selected_entity = article.get('entity', None)
+                
+                if self.pinecone_db.store_article(article, analysis_result, selected_entity):
                     success_count += 1
                 else:
                     error_count += 1
@@ -428,24 +431,21 @@ class NewsScheduler:
             logger.warning("No articles found after collection and filtering")
             return
         
-        # Perform analysis with optimized batch processing
-        logger.info("Starting optimized batch analysis")
-        analyzed_articles = await self.analyzer.analyze_articles_async(
+        # Perform comprehensive analysis and storage (same as News Analysis page)
+        logger.info("Starting comprehensive analysis and storage (same as News Analysis)")
+        
+        # Use the same analysis method as News Analysis page for consistency
+        analysis_results = await self.analyzer.analyze_and_store_advanced(
             all_articles, 
-            sentiment_method='llm'
+            sentiment_method='llm',
+            selected_entity=None  # Entity is already set in each article during collection
         )
         
-        # Update all_articles with analysis results
-        all_articles = analyzed_articles
+        # Extract individual article results for consistency
+        individual_analyses = analysis_results.get('individual_analyses', [])
+        all_articles = individual_analyses  # Use the analyzed articles from the comprehensive analysis
         
-        # Store results in database if enabled
-        if self.config.enable_pinecone_storage and PINECONE_AVAILABLE:
-            logger.info("Storing results in Pinecone database")
-            storage_stats = await self.pinecone_db.store_articles_batch_async(
-                all_articles, 
-                all_articles  # Pass analyzed articles as analysis results
-            )
-            logger.info(f"Storage completed: {storage_stats}")
+        logger.info(f"Comprehensive analysis completed: {len(all_articles)} articles processed")
         
         # Generate summary
         summary = self._generate_collection_summary(all_articles)

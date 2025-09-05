@@ -1,20 +1,12 @@
 {
-    "run_time": "08:00",
+    "run_time": "01:00",
     "timezone": "US/Eastern",
     "articles_per_entity": 5,
     "entities": [
-        "NVDA",
-        "NVIDIA CORPORATION",
-        "MSFT",
-        "MICROSOFT CORP",
-        "AAPL",
-        "APPLE INC.",
-        "AVGO",
-        "BROADCOM INC.",
-        "META",
-        "META PLATFORMS INC",
-        "AMZN",
-        "AMAZON.COM INC"
+        "AAPL - Apple Inc",
+        "NVDA - NVIDIA Corporation",
+        "TSLA - Tesla Inc",
+        "AMZN - Amazon.com Inc"
     ],
     "keywords": [
         "risk",

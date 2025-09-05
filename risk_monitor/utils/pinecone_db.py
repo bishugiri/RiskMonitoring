@@ -263,9 +263,12 @@ class PineconeDB:
             # Extract source
             source = self.extract_clean_source(article)
             
-            # Use selected entity if provided, otherwise determine using LLM logic
+            # Use selected entity if provided, otherwise check if entity is already set in article (scheduler case), otherwise determine using LLM logic
             if selected_entity and selected_entity != "All Companies":
                 entity = selected_entity
+            elif article.get('entity') and article.get('entity') != "All Companies":
+                # Entity already set in article (e.g., by scheduler)
+                entity = article.get('entity')
             else:
                 entity = self._determine_entity(article)
             
@@ -524,9 +527,12 @@ class PineconeDB:
         else:
             formatted_date = 'N/A'
         
-        # Use selected entity if provided, otherwise determine using LLM logic
+        # Use selected entity if provided, otherwise check if entity is already set in article (scheduler case), otherwise determine using LLM logic
         if selected_entity and selected_entity != "All Companies":
             entity = selected_entity
+        elif article.get('entity') and article.get('entity') != "All Companies":
+            # Entity already set in article (e.g., by scheduler)
+            entity = article.get('entity')
         else:
             entity = self._determine_entity(article)
         

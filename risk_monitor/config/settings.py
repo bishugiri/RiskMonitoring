@@ -67,7 +67,7 @@ class Config:
     # Scheduler Configuration
     DEFAULT_SCHEDULER_TIME = "08:00"  # 8:00 AM ET
     DEFAULT_SCHEDULER_TIMEZONE = "US/Eastern"
-    SCHEDULER_CONFIG_FILE = os.path.join(ROOT_DIR, "scheduler_config.json")
+    SCHEDULER_CONFIG_FILE = os.path.join(ROOT_DIR, "risk_monitor", "scheduler_config.json")
     
     # Pinecone Configuration
     PINECONE_INDEX_NAME = "sentiment-db"
