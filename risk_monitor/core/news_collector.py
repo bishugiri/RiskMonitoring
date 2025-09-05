@@ -40,7 +40,7 @@ class NewsCollector:
         # Blocked domains that frequently return 403
         self.blocked_domains = {
             'bloomberg.com', 'seekingalpha.com', 'wsj.com', 'ft.com',
-            'nytimes.com', 'washingtonpost.com', 'latimes.com', 'chicagotribune.com', 'thestreet.com'
+            'nytimes.com', 'washingtonpost.com', 'latimes.com', 'chicagotribune.com', 'thestreet.com', 'marketwatch.com'
         }
     
     def setup_logging(self):

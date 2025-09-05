@@ -430,68 +430,150 @@ class NewsScheduler:
         
         # Perform analysis with optimized batch processing
         logger.info("Starting optimized batch analysis")
-        analysis_results = await self.analyzer.analyze_articles_async(
+        analyzed_articles = await self.analyzer.analyze_articles_async(
             all_articles, 
             sentiment_method='llm'
         )
+        
+        # Update all_articles with analysis results
+        all_articles = analyzed_articles
         
         # Store results in database if enabled
         if self.config.enable_pinecone_storage and PINECONE_AVAILABLE:
             logger.info("Storing results in Pinecone database")
             storage_stats = await self.pinecone_db.store_articles_batch_async(
                 all_articles, 
-                analysis_results
+                all_articles  # Pass analyzed articles as analysis results
             )
             logger.info(f"Storage completed: {storage_stats}")
         
         # Generate summary
-        summary = self._generate_collection_summary(all_articles, analysis_results)
+        summary = self._generate_collection_summary(all_articles)
         
         # Save results to file
         output_file = f"output/daily_collection_{timestamp}.json"
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
+        # Save both summary and full article data
+        full_data = {
+            'summary': summary,
+            'articles': all_articles,
+            'timestamp': timestamp
+        }
+        
         with open(output_file, 'w') as f:
-            json.dump(summary, f, indent=2, default=str)
+            json.dump(full_data, f, indent=2, default=str)
         
         logger.info(f"Daily collection completed. Results saved to {output_file}")
+        
+        # Send email if enabled
+        if self.config.email_enabled:
+            await self.send_daily_email(summary, all_articles)
+        
         return summary
 
-    def _generate_collection_summary(self, articles: List[Dict], analysis_results: Dict) -> Dict:
+    def _generate_collection_summary(self, articles: List[Dict]) -> Dict:
         """Generate a summary of the collection and analysis results."""
         summary = {
             'total_articles_collected': len(articles),
-            'total_articles_analyzed': len(analysis_results.get('article_analysis', [])),
-            'total_articles_risk_analyzed': len(analysis_results.get('risk_analysis', [])),
-            'summary_sentiment': analysis_results.get('summary', {}).get('sentiment', {}),
-            'summary_risk': analysis_results.get('summary', {}).get('risk', {}),
-            'summary_overall': analysis_results.get('summary', {}).get('overall', {}),
+            'total_articles_analyzed': len(articles),
+            'summary_sentiment': {},
+            'summary_risk': {},
             'article_analysis_summary': {},
             'risk_analysis_summary': {}
         }
 
-        # Summarize article analysis
-        article_analysis_summary = {}
-        for method_name, method_data in analysis_results.get('article_analysis_summary', {}).items():
-            article_analysis_summary[method_name] = {
-                'total_articles': method_data.get('total_articles', 0),
-                'positive_count': method_data.get('positive_count', 0),
-                'neutral_count': method_data.get('neutral_count', 0),
-                'negative_count': method_data.get('negative_count', 0),
-                'average_sentiment_score': method_data.get('average_sentiment_score', 0.0)
-            }
-        summary['article_analysis_summary'] = article_analysis_summary
+        # Calculate sentiment summary
+        sentiment_scores = []
+        sentiment_counts = {'Positive': 0, 'Neutral': 0, 'Negative': 0}
+        
+        for article in articles:
+            sentiment_analysis = article.get('sentiment_analysis', {})
+            if isinstance(sentiment_analysis, dict) and 'score' in sentiment_analysis:
+                sentiment_scores.append(sentiment_analysis['score'])
+                category = sentiment_analysis.get('category', 'Neutral')
+                sentiment_counts[category] = sentiment_counts.get(category, 0) + 1
+        
+        avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.0
+        
+        summary['summary_sentiment'] = {
+            'average_score': avg_sentiment,
+            'positive_count': sentiment_counts['Positive'],
+            'neutral_count': sentiment_counts['Neutral'],
+            'negative_count': sentiment_counts['Negative']
+        }
 
-        # Summarize risk analysis
-        risk_analysis_summary = {}
-        for risk_type, risk_data in analysis_results.get('risk_analysis_summary', {}).items():
-            risk_analysis_summary[risk_type] = {
-                'total_articles': risk_data.get('total_articles', 0),
-                'average_risk_score': risk_data.get('average_risk_score', 0.0)
-            }
-        summary['risk_analysis_summary'] = risk_analysis_summary
+        # Calculate risk summary
+        risk_scores = []
+        for article in articles:
+            risk_analysis = article.get('risk_analysis', {})
+            if isinstance(risk_analysis, dict) and 'overall_risk_score' in risk_analysis:
+                risk_scores.append(risk_analysis['overall_risk_score'])
+        
+        avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
+        
+        summary['summary_risk'] = {
+            'average_score': avg_risk,
+            'total_articles': len(risk_scores)
+        }
 
         return summary
+    
+    async def send_daily_email(self, summary: Dict, articles: List[Dict]):
+        """Send daily email report with analysis results."""
+        try:
+            logger.info("Preparing daily email report")
+            
+            # Calculate executive summary metrics
+            total_articles = len(articles)
+            
+            # Calculate average sentiment score
+            sentiment_scores = []
+            for article in articles:
+                sentiment_analysis = article.get('sentiment_analysis', {})
+                if isinstance(sentiment_analysis, dict) and 'score' in sentiment_analysis:
+                    sentiment_scores.append(sentiment_analysis['score'])
+            
+            avg_sentiment = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0.0
+            
+            # Calculate average risk score
+            risk_scores = []
+            for article in articles:
+                risk_analysis = article.get('risk_analysis', {})
+                if isinstance(risk_analysis, dict) and 'overall_risk_score' in risk_analysis:
+                    risk_scores.append(risk_analysis['overall_risk_score'])
+            
+            avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
+            
+            # Create executive summary
+            exec_summary = {
+                'total_articles': total_articles,
+                'avg_sentiment': avg_sentiment,
+                'avg_risk_score': avg_risk
+            }
+            
+            # Get top negative articles (sorted by sentiment score)
+            top_negative = sorted(articles, key=lambda x: x.get('sentiment_analysis', {}).get('score', 0))[:10]
+            
+            # Choose email format based on configuration
+            if self.config.enable_detailed_email:
+                html_body = format_detailed_email_html(exec_summary, top_negative, articles)
+                subject = "Daily Risk Monitor Report - Detailed Analysis"
+            else:
+                html_body = format_daily_summary_html(exec_summary, top_negative)
+                subject = "Daily Risk Monitor Report - Summary"
+            
+            # Send email
+            send_html_email(
+                subject=subject,
+                html_body=html_body,
+                recipients=self.config.email_recipients
+            )
+            
+            logger.info("Daily summary email sent")
+            
+        except Exception as e:
+            logger.error(f"Error sending daily email: {e}")
         
     def _filter_articles_by_keywords(self, articles: List[Dict]) -> List[Dict]:
         """Filter articles by keywords (helper method for async operation)"""

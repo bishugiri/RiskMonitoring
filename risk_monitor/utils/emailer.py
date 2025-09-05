@@ -98,8 +98,8 @@ def extract_clean_source(article):
 def format_daily_summary_html(summary: dict, top_negative: list[dict]) -> str:
     """Build a simple HTML summary body for daily report."""
     total = summary.get("total_articles", 0)
-    sent_score = summary.get("sentiment_score", 0)
-    risk_score = summary.get("risk_score", 0)
+    sent_score = summary.get("avg_sentiment", 0)
+    avg_risk_score = summary.get("avg_risk_score", 0)
 
     rows = []
     for i, art in enumerate(top_negative[:10], 1):
@@ -111,15 +111,47 @@ def format_daily_summary_html(summary: dict, top_negative: list[dict]) -> str:
         date = art.get("publish_date", "") or art.get("date", "")
         url = art.get("url", "#")
         
-        # Format date
+        # Format date consistently
         if date:
             try:
-                # Try to extract just the date part
-                if "," in date:
-                    date = date.split(",")[0]
-                elif " " in date:
-                    date = date.split(" ")[0]
-            except:
+                from datetime import datetime
+                # Handle different date formats
+                if isinstance(date, str):
+                    # Try to parse common date formats
+                    date_formats = [
+                        "%Y-%m-%d",
+                        "%Y-%m-%dT%H:%M:%S",
+                        "%Y-%m-%dT%H:%M:%S%z",
+                        "%Y-%m-%dT%H:%M:%S+00:00",
+                        "%m/%d/%Y",
+                        "%d/%m/%Y",
+                        "%B %d, %Y",
+                        "%b %d, %Y"
+                    ]
+                    
+                    parsed_date = None
+                    for fmt in date_formats:
+                        try:
+                            parsed_date = datetime.strptime(date, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    
+                    if parsed_date:
+                        # Format as MM/DD/YYYY for consistency
+                        date = parsed_date.strftime("%m/%d/%Y")
+                    else:
+                        # Fallback: extract just the date part
+                        if "," in date:
+                            date = date.split(",")[0]
+                        elif " " in date:
+                            date = date.split(" ")[0]
+                        elif "T" in date:
+                            date = date.split("T")[0]
+                        else:
+                            date = date[:10] if len(date) > 10 else date
+            except Exception as e:
+                logger.warning(f"Error formatting date '{date}': {e}")
                 date = date[:10] if len(date) > 10 else date
         else:
             date = ""
@@ -138,7 +170,7 @@ def format_daily_summary_html(summary: dict, top_negative: list[dict]) -> str:
     html = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial;">
       <h2>Daily Risk Monitor Summary</h2>
-      <p><b>Total articles:</b> {total} &nbsp; | &nbsp; <b>Avg Sentiment:</b> {sent_score:.3f} &nbsp; | &nbsp; <b>Avg Risk:</b> {risk_score:.3f}</p>
+      <p><b>Total articles:</b> {total} &nbsp; | &nbsp; <b>Avg Sentiment:</b> {sent_score:.3f} &nbsp; | &nbsp; <b>Avg Risk:</b> {avg_risk_score:.3f}</p>
       <h3>Top 10 Most Negative Articles</h3>
       {table}
     </div>
@@ -149,8 +181,8 @@ def format_daily_summary_html(summary: dict, top_negative: list[dict]) -> str:
 def format_detailed_email_html(summary: dict, top_negative: list[dict], all_articles: list[dict]) -> str:
     """Build a detailed HTML email with comprehensive analysis and insights."""
     total = summary.get("total_articles", 0)
-    sent_score = summary.get("sentiment_score", 0)
-    risk_score = summary.get("risk_score", 0)
+    sent_score = summary.get("avg_sentiment", 0)
+    avg_risk_score = summary.get("avg_risk_score", 0)
     
     # Calculate additional metrics
     sentiment_distribution = {}
@@ -183,24 +215,96 @@ def format_detailed_email_html(summary: dict, top_negative: list[dict], all_arti
         entity = art.get("entity", "Unknown")
         summary_text = art.get("summary", "")[:200] + "..." if len(art.get("summary", "")) > 200 else art.get("summary", "")
         
-        # Format date
+        # Format date consistently
         if date:
             try:
-                if "," in date:
-                    date = date.split(",")[0]
-                elif " " in date:
-                    date = date.split(" ")[0]
-            except:
+                from datetime import datetime
+                # Handle different date formats
+                if isinstance(date, str):
+                    # Try to parse common date formats
+                    date_formats = [
+                        "%Y-%m-%d",
+                        "%Y-%m-%dT%H:%M:%S",
+                        "%Y-%m-%dT%H:%M:%S%z",
+                        "%Y-%m-%dT%H:%M:%S+00:00",
+                        "%m/%d/%Y",
+                        "%d/%m/%Y",
+                        "%B %d, %Y",
+                        "%b %d, %Y"
+                    ]
+                    
+                    parsed_date = None
+                    for fmt in date_formats:
+                        try:
+                            parsed_date = datetime.strptime(date, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    
+                    if parsed_date:
+                        # Format as MM/DD/YYYY for consistency
+                        date = parsed_date.strftime("%m/%d/%Y")
+                    else:
+                        # Fallback: extract just the date part
+                        if "," in date:
+                            date = date.split(",")[0]
+                        elif " " in date:
+                            date = date.split(" ")[0]
+                        elif "T" in date:
+                            date = date.split("T")[0]
+                        else:
+                            date = date[:10] if len(date) > 10 else date
+            except Exception as e:
+                logger.warning(f"Error formatting date '{date}': {e}")
                 date = date[:10] if len(date) > 10 else date
         else:
             date = ""
         
-        # Add justification if available
-        justification = s.get("justification", "")
-        if justification:
-            insight = f"<br><small><i>Insight: {justification}</i></small>"
+        # Enhanced insight extraction with priority order
+        insight_text = None
+        insight_source = None
+        
+        # Check for different types of sentiment analysis data
+        if isinstance(s, dict):
+            # Structured analysis with reasoning
+            if s.get('reasoning'):
+                insight_text = s.get('reasoning')
+                insight_source = "Structured Analysis"
+            # LLM analysis with justification
+            elif s.get('justification'):
+                insight_text = s.get('justification')
+                insight_source = "LLM Analysis"
+            # Key factors
+            elif s.get('key_factors'):
+                factors = s.get('key_factors', [])
+                if isinstance(factors, list) and factors:
+                    insight_text = f"Key factors: {', '.join(factors)}"
+                    insight_source = "LLM Analysis"
+            # Market impact
+            elif s.get('market_impact'):
+                insight_text = s.get('market_impact')
+                insight_source = "LLM Analysis"
+        
+        # Fallback to direct article fields
+        if not insight_text:
+            if art.get('sentiment_justification'):
+                insight_text = art.get('sentiment_justification')
+                insight_source = "LLM Analysis"
+            elif art.get('reasoning'):
+                insight_text = art.get('reasoning')
+                insight_source = "Structured Analysis"
+        
+        # Display the insight
+        if insight_text:
+            insight = f"<br><small><i>💡 Insight ({insight_source}): {insight_text}</i></small>"
         else:
-            insight = ""
+            # Fallback to lexicon analysis
+            positive_count = art.get('positive_count', 0)
+            negative_count = art.get('negative_count', 0)
+            if positive_count > 0 or negative_count > 0:
+                insight = f"<br><small><i>📊 Lexicon Analysis: Found {positive_count} positive and {negative_count} negative financial indicators.</i></small>"
+            else:
+                insight = ""
         
         detailed_rows.append(f"""
         <tr>
@@ -258,7 +362,7 @@ def format_detailed_email_html(summary: dict, top_negative: list[dict], all_arti
                 </div>
                 <div style="background: white; padding: 15px; border-radius: 6px; text-align: center;">
                     <h3 style="margin: 0; color: #666;">Avg Risk Score</h3>
-                    <p style="font-size: 24px; font-weight: bold; margin: 5px 0; color: {get_risk_color(risk_score)};">{risk_score:.3f}</p>
+                    <p style="font-size: 24px; font-weight: bold; margin: 5px 0; color: {get_risk_color(avg_risk_score)};">{avg_risk_score:.3f}</p>
                 </div>
             </div>
         </div>

@@ -104,45 +104,98 @@ class RAGService:
             return []
     
     def _semantic_search_on_articles(self, articles: List[Dict], query: str, top_k: int = 5) -> List[Dict]:
-        """Perform semantic search on a subset of articles"""
+        """Perform semantic search on a subset of articles using pre-computed embeddings"""
         if not articles:
             return []
         
         try:
-            # Create embeddings for the query
+            # Create embedding for the query only (this is necessary)
+            print(f"🔤 GENERATING QUERY EMBEDDING: '{query[:50]}...' (model: text-embedding-3-large)")
             query_embedding = self.client.embeddings.create(
                 input=query,
-                model="text-embedding-3-small"
+                model="text-embedding-3-large"
             ).data[0].embedding
+            print(f"✅ Query embedding generated successfully")
             
-            # Calculate similarity scores for each article
+            # Calculate similarity scores for each article using pre-computed embeddings
             scored_articles = []
-            for article in articles:
-                # Use title and text for similarity calculation
-                article_text = f"{article.get('title', '')} {article.get('text', '')}"
+            articles_with_precomputed = 0
+            articles_fetched_from_db = 0
+            
+            for i, article in enumerate(articles):
+                article_title = article.get('title', 'Unknown')[:30]
+                # Check if article has pre-computed embedding
+                article_embedding = article.get('embedding')
                 
-                # Create embedding for article text
-                article_embedding = self.client.embeddings.create(
-                    input=article_text[:1000],  # Limit text length for efficiency
-                    model="text-embedding-3-small"
-                ).data[0].embedding
-                
-                # Calculate cosine similarity
-                import numpy as np
-                similarity = np.dot(query_embedding, article_embedding) / (
-                    np.linalg.norm(query_embedding) * np.linalg.norm(article_embedding)
-                )
-                
-                scored_articles.append({
-                    'article': article,
-                    'score': similarity
-                })
+                if article_embedding is not None:
+                    # Use the pre-computed embedding directly
+                    print(f"♻️  USING PRE-COMPUTED EMBEDDING: Article {i+1} - '{article_title}...'")
+                    articles_with_precomputed += 1
+                    import numpy as np
+                    similarity = np.dot(query_embedding, article_embedding) / (
+                        np.linalg.norm(query_embedding) * np.linalg.norm(article_embedding)
+                    )
+                    
+                    scored_articles.append({
+                        'article': article,
+                        'score': similarity
+                    })
+                else:
+                    # If no pre-computed embedding, try to fetch from Pinecone
+                    article_id = article.get('id', '')
+                    if article_id:
+                        try:
+                            print(f"🔍 FETCHING EMBEDDING FROM DB: Article {i+1} - '{article_title}...'")
+                            fetch_result = self.pinecone_db.index.fetch(ids=[article_id])
+                            if article_id in fetch_result.vectors:
+                                article_embedding = fetch_result.vectors[article_id].values
+                                print(f"✅ Retrieved embedding from database for Article {i+1}")
+                                articles_fetched_from_db += 1
+                                
+                                # Calculate cosine similarity using fetched embedding
+                                import numpy as np
+                                similarity = np.dot(query_embedding, article_embedding) / (
+                                    np.linalg.norm(query_embedding) * np.linalg.norm(article_embedding)
+                                )
+                                
+                                scored_articles.append({
+                                    'article': article,
+                                    'score': similarity
+                                })
+                            else:
+                                print(f"❌ Embedding not found in database for Article {i+1}")
+                                # If embedding not found, use a low similarity score
+                                scored_articles.append({
+                                    'article': article,
+                                    'score': 0.0
+                                })
+                        except Exception as e:
+                            print(f"⚠️  Error fetching embedding for article {article_id}: {e}")
+                            # Fallback: use low similarity score
+                            scored_articles.append({
+                                'article': article,
+                                'score': 0.0
+                            })
+                    else:
+                        print(f"❌ No article ID for Article {i+1} - '{article_title}...'")
+                        # No ID, use low similarity score
+                        scored_articles.append({
+                            'article': article,
+                            'score': 0.0
+                        })
             
             # Sort by similarity score and return top_k
             scored_articles.sort(key=lambda x: x['score'], reverse=True)
             top_articles = [item['article'] for item in scored_articles[:top_k]]
             
-            print(f"📊 Semantic search completed: {len(top_articles)} articles selected")
+            print(f"📊 SEMANTIC SEARCH SUMMARY:")
+            print(f"   Total articles processed: {len(articles)}")
+            print(f"   Articles with pre-computed embeddings: {articles_with_precomputed}")
+            print(f"   Articles fetched from database: {articles_fetched_from_db}")
+            print(f"   Articles selected: {len(top_articles)}")
+            print(f"💰 COST SAVINGS: {articles_with_precomputed} embeddings reused (no API calls)")
+            print(f"🔤 API CALLS MADE: 1 query embedding + {articles_fetched_from_db} database fetches")
+            
             return top_articles
             
         except Exception as e:
@@ -349,31 +402,10 @@ class RAGService:
                 print(f"🔍 Step 4: Applying USER QUERY FILTER - '{query}'")
                 original_count = len(filtered_results)
                 
-                # Perform semantic search on the already filtered results
+                # Perform semantic search on the already filtered results using pre-computed embeddings
                 if filtered_results:
-                    # Get embeddings for filtered articles
-                    query_embedding = self.pinecone_db.generate_embedding(query)
-                    
-                    # Calculate similarity scores for filtered articles
-                    scored_articles = []
-                    for article in filtered_results:
-                        # Get article text for embedding
-                        article_text = article.get('text', '')[:1000]  # Limit text length
-                        if article_text:
-                            try:
-                                article_embedding = self.pinecone_db.generate_embedding(article_text)
-                                # Calculate cosine similarity
-                                similarity = self._calculate_cosine_similarity(query_embedding, article_embedding)
-                                scored_articles.append((article, similarity))
-                            except Exception as e:
-                                # If embedding fails, use low similarity
-                                scored_articles.append((article, 0.0))
-                        else:
-                            scored_articles.append((article, 0.0))
-                    
-                    # Sort by similarity score and take top results
-                    scored_articles.sort(key=lambda x: x[1], reverse=True)
-                    filtered_results = [article for article, score in scored_articles[:top_k]]
+                    # Use the optimized semantic search method that uses pre-computed embeddings
+                    filtered_results = self._semantic_search_on_articles(filtered_results, query, top_k)
                     
                     print(f"   ✅ Query filter result: {len(filtered_results)} articles (from {original_count})")
                 else:

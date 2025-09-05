@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 # Try to import Pinecone, but handle gracefully if not available
 try:
@@ -68,7 +69,7 @@ class PineconeDB:
                 from pinecone import ServerlessSpec
                 self.pc.create_index(
                     name=self.index_name,
-                    dimension=1536,  # OpenAI text-embedding-3-small dimension
+                    dimension=3072,  # OpenAI text-embedding-3-large dimension
                     metric="cosine",
                 spec=ServerlessSpec(
                     cloud="aws",
@@ -236,7 +237,7 @@ class PineconeDB:
                 response = await loop.run_in_executor(
                     executor,
                     lambda: client.embeddings.create(
-                        model="text-embedding-3-small",
+                        model="text-embedding-3-large",
                         input=text
                     )
                 )
@@ -287,6 +288,7 @@ class PineconeDB:
     def generate_embedding(self, text: str) -> List[float]:
         """Generate OpenAI embedding for text"""
         try:
+            print(f"🔤 GENERATING NEW EMBEDDING: '{text[:50]}...' (model: text-embedding-3-large)")
             from openai import OpenAI
             import httpx
             import httpx
@@ -299,8 +301,10 @@ class PineconeDB:
                 model="text-embedding-3-large",
                 input=text
             )
+            print(f"✅ New embedding generated successfully")
             return response.data[0].embedding
         except Exception as e:
+            print(f"❌ Error generating embedding: {e}")
             logger.error(f"Error generating embedding: {e}")
             raise
     
@@ -593,7 +597,7 @@ class PineconeDB:
             return {}
     
     def get_all_articles(self, top_k: int = 1000) -> List[Dict]:
-        """Get all articles from the database without semantic search"""
+        """Get all articles from the database without semantic search, including full metadata"""
         try:
             # Use a generic query to get all articles
             query_embedding = self.generate_embedding("article")
@@ -602,13 +606,19 @@ class PineconeDB:
                 vector=query_embedding,
                 top_k=top_k,
                 filter=None,
-                include_metadata=True
+                include_metadata=True,
+                include_values=True  # Include the embedding vectors
             )
             
-            # Format results
+            # Format results with complete metadata
             articles = []
+            articles_with_embeddings = 0
             for match in results.matches:
                 metadata = match.metadata
+                has_embedding = match.values is not None
+                if has_embedding:
+                    articles_with_embeddings += 1
+                
                 articles.append({
                     'id': match.id,
                     'score': match.score,
@@ -619,10 +629,31 @@ class PineconeDB:
                     'sentiment_score': metadata.get('sentiment_score', 0),
                     'sentiment_category': metadata.get('sentiment_category', 'Neutral'),
                     'risk_score': metadata.get('risk_score', 0),
-                    'text': metadata.get('text', '')[:500] + '...' if len(metadata.get('text', '')) > 500 else metadata.get('text', ''),
+                    'text': metadata.get('text', ''),  # Return full text, not truncated
                     'analysis_timestamp': metadata.get('analysis_timestamp', ''),
-                    'entity': metadata.get('entity', '')
+                    'entity': metadata.get('entity', ''),
+                    'authors': metadata.get('authors', []),
+                    'keywords': metadata.get('keywords', []),
+                    'summary': metadata.get('summary', ''),
+                    'meta_description': metadata.get('meta_description', ''),
+                    'sentiment_justification': metadata.get('sentiment_justification', ''),
+                    'risk_categories': metadata.get('risk_categories', ''),
+                    'risk_indicators': metadata.get('risk_indicators', ''),
+                    'extraction_time': metadata.get('extraction_time', ''),
+                    'analysis_method': metadata.get('analysis_method', ''),
+                    'sentiment_method': metadata.get('sentiment_method', ''),
+                    'risk_method': metadata.get('risk_method', ''),
+                    'storage_type': metadata.get('storage_type', ''),
+                    'keywords_found': metadata.get('keywords_found', ''),
+                    'full_analysis': metadata.get('full_analysis', ''),
+                    'full_article_data': metadata.get('full_article_data', ''),
+                    'embedding': match.values  # Include the pre-computed embedding
                 })
+            
+            print(f"📊 ARTICLES RETRIEVED WITH EMBEDDINGS:")
+            print(f"   Total articles: {len(articles)}")
+            print(f"   Articles with embeddings: {articles_with_embeddings}")
+            print(f"   Embedding availability: {articles_with_embeddings/len(articles)*100:.1f}%" if articles else "N/A")
             
             return articles
             

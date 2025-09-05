@@ -868,12 +868,15 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                 # Add risk-sentiment correlation analysis
                 correlation_result = self._analyze_risk_sentiment_correlation(risk_result, sentiment_result)
                 
-                combined_results.append({
+                # Preserve original article data and add analysis results
+                combined_article = article.copy()  # Preserve original article data
+                combined_article.update({
                     'sentiment_analysis': sentiment_result,
                     'risk_analysis': risk_result,
                     'sentiment_method': sentiment_method,
                     'risk_sentiment_correlation': correlation_result
                 })
+                combined_results.append(combined_article)
             except Exception as e:
                 self.logger.error(f"Error combining results for article {i}: {e}")
                 combined_results.append(self._fallback_analysis(article, sentiment_method))
@@ -954,12 +957,15 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
         sentiment_analysis = self._fallback_sentiment_analysis(article)
         risk_analysis = self._fallback_risk_analysis(article)
         
-        return {
+        # Preserve original article data and add analysis results
+        combined_article = article.copy()  # Preserve original article data
+        combined_article.update({
             'sentiment_analysis': sentiment_analysis,
             'risk_analysis': risk_analysis,
             'sentiment_method': sentiment_method,
             'risk_sentiment_correlation': self._analyze_risk_sentiment_correlation(risk_analysis, sentiment_analysis)
-        }
+        })
+        return combined_article
     
     def _fallback_sentiment_analysis(self, article: Dict) -> Dict:
         """
