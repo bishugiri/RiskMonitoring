@@ -82,7 +82,7 @@ class PineconeDB:
         except Exception as e:
             logger.error(f"Error getting/creating index: {e}")
 
-    async def store_articles_batch_async(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict[str, int]:
+    async def store_articles_batch_async(self, articles: List[Dict], analysis_results: List[Dict], selected_entity: str = None) -> Dict[str, int]:
         """
         Store multiple articles in batch with concurrent processing
         
@@ -107,7 +107,7 @@ class PineconeDB:
             batch_analyses = analysis_results[i:i + batch_size]
             
             # Process batch concurrently
-            batch_results = await self._process_batch_async(batch_articles, batch_analyses)
+            batch_results = await self._process_batch_async(batch_articles, batch_analyses, selected_entity)
             
             success_count += batch_results['success_count']
             error_count += batch_results['error_count']
@@ -119,7 +119,7 @@ class PineconeDB:
             'total_count': len(articles)
         }
 
-    async def _process_batch_async(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict[str, int]:
+    async def _process_batch_async(self, articles: List[Dict], analysis_results: List[Dict], selected_entity: str = None) -> Dict[str, int]:
         """
         Process a batch of articles asynchronously
         
@@ -136,7 +136,7 @@ class PineconeDB:
         # Create tasks for concurrent processing
         tasks = []
         for article, analysis in zip(articles, analysis_results):
-            task = self._store_single_article_async(article, analysis)
+            task = self._store_single_article_async(article, analysis, selected_entity)
             tasks.append(task)
         
         # Execute all tasks concurrently
@@ -155,7 +155,7 @@ class PineconeDB:
             'error_count': error_count
         }
 
-    async def _store_single_article_async(self, article: Dict, analysis_result: Dict) -> bool:
+    async def _store_single_article_async(self, article: Dict, analysis_result: Dict, selected_entity: str = None) -> bool:
         """
         Store a single article asynchronously
         
@@ -169,7 +169,7 @@ class PineconeDB:
         try:
             # Generate embeddings concurrently
             embedding_task = self._generate_embedding_async(article)
-            metadata_task = self._prepare_metadata_async(article, analysis_result)
+            metadata_task = self._prepare_metadata_async(article, analysis_result, selected_entity)
             
             # Wait for both tasks to complete
             embedding, metadata = await asyncio.gather(embedding_task, metadata_task)
@@ -248,7 +248,7 @@ class PineconeDB:
             logger.error(f"Error generating embedding: {e}")
             return None
 
-    async def _prepare_metadata_async(self, article: Dict, analysis_result: Dict) -> Dict[str, Any]:
+    async def _prepare_metadata_async(self, article: Dict, analysis_result: Dict, selected_entity: str = None) -> Dict[str, Any]:
         """
         Prepare metadata for article storage asynchronously
         
@@ -263,12 +263,23 @@ class PineconeDB:
             # Extract source
             source = self.extract_clean_source(article)
             
+            # Use selected entity if provided, otherwise determine using LLM logic
+            if selected_entity and selected_entity != "All Companies":
+                entity = selected_entity
+            else:
+                entity = self._determine_entity(article)
+            
+            # Get current system date for article_extracted_date
+            article_extracted_date = datetime.now().strftime('%Y-%m-%d')
+            
             # Prepare metadata
             metadata = {
                 'url': article.get('url', ''),
                 'title': article.get('title', ''),
                 'source': source,
                 'publish_date': article.get('publish_date'),
+                'entity': entity,  # Use selected entity or LLM-determined entity
+                'article_extracted_date': article_extracted_date,  # System date when added to DB
                 'sentiment_score': analysis_result.get('sentiment_analysis', {}).get('score', 0),
                 'sentiment_category': analysis_result.get('sentiment_analysis', {}).get('category', 'Neutral'),
                 'risk_score': analysis_result.get('risk_analysis', {}).get('overall_risk_score', 0),
@@ -392,23 +403,112 @@ class PineconeDB:
         
         return "Unknown"
     
-    def format_metadata(self, article: Dict, analysis_result: Dict) -> Dict[str, Any]:
-        """Format comprehensive metadata for Pinecone storage"""
+    def _determine_entity(self, article: Dict) -> str:
+        """Determine the main entity/company from article content using LLM"""
+        try:
+            # Entity mapping dictionary
+            entity_mappings = {
+                "apple": "AAPL - Apple Inc",
+                "microsoft": "MSFT - Microsoft Corporation", 
+                "google": "GOOGL - Alphabet Inc",
+                "alphabet": "GOOGL - Alphabet Inc",
+                "amazon": "AMZN - Amazon.com Inc",
+                "tesla": "TSLA - Tesla Inc",
+                "meta": "META - Meta Platforms Inc",
+                "facebook": "META - Meta Platforms Inc",
+                "nvidia": "NVDA - NVIDIA Corporation",
+                "netflix": "NFLX - Netflix Inc",
+                "berkshire": "BRK.A - Berkshire Hathaway Inc",
+                "jpmorgan": "JPM - JPMorgan Chase & Co",
+                "bank of america": "BAC - Bank of America Corp",
+                "wells fargo": "WFC - Wells Fargo & Co",
+                "goldman sachs": "GS - Goldman Sachs Group Inc",
+                "morgan stanley": "MS - Morgan Stanley",
+                "visa": "V - Visa Inc",
+                "mastercard": "MA - Mastercard Inc",
+                "paypal": "PYPL - PayPal Holdings Inc",
+                "salesforce": "CRM - Salesforce Inc",
+                "oracle": "ORCL - Oracle Corporation",
+                "adobe": "ADBE - Adobe Inc",
+                "intel": "INTC - Intel Corporation",
+                "amd": "AMD - Advanced Micro Devices Inc",
+                "cisco": "CSCO - Cisco Systems Inc",
+                "ibm": "IBM - International Business Machines Corp",
+                "walmart": "WMT - Walmart Inc",
+                "home depot": "HD - Home Depot Inc",
+                "costco": "COST - Costco Wholesale Corp",
+                "target": "TGT - Target Corporation",
+                "nike": "NKE - Nike Inc",
+                "coca cola": "KO - Coca-Cola Co",
+                "pepsi": "PEP - PepsiCo Inc",
+                "procter & gamble": "PG - Procter & Gamble Co",
+                "johnson & johnson": "JNJ - Johnson & Johnson",
+                "pfizer": "PFE - Pfizer Inc",
+                "moderna": "MRNA - Moderna Inc",
+                "boeing": "BA - Boeing Co",
+                "general electric": "GE - General Electric Co",
+                "disney": "DIS - Walt Disney Co",
+                "comcast": "CMCSA - Comcast Corp",
+                "verizon": "VZ - Verizon Communications Inc",
+                "at&t": "T - AT&T Inc",
+                "t-mobile": "TMUS - T-Mobile US Inc"
+            }
+            
+            # Get article text and title for entity detection
+            text = (article.get('title', '') + ' ' + article.get('text', '')).lower()
+            
+            # Check for entity matches in order of specificity
+            for entity_key, entity_value in entity_mappings.items():
+                if entity_key in text:
+                    return entity_value
+            
+            # If no specific entity found, return empty string
+            return ""
+            
+        except Exception as e:
+            logger.error(f"Error determining entity: {e}")
+            return ""
+
+    def format_metadata(self, article: Dict, analysis_result: Dict, selected_entity: str = None) -> Dict[str, Any]:
+        """Format simplified metadata for Pinecone storage with essential fields and LLM insights"""
         
         # Extract sentiment analysis from the proper structure
         sentiment_analysis = analysis_result.get('sentiment_analysis', {})
-        sentiment_score = sentiment_analysis.get('score', 0)
+        sentiment_score = sentiment_analysis.get('score', 0) or sentiment_analysis.get('sentiment_score', 0)
         sentiment_category = sentiment_analysis.get('category', 'Neutral')
-        sentiment_justification = sentiment_analysis.get('justification', '')
+        # Try multiple possible field names for sentiment insight
+        sentiment_insight = (
+            sentiment_analysis.get('justification', '') or 
+            sentiment_analysis.get('reasoning', '') or 
+            sentiment_analysis.get('insight', '') or
+            sentiment_analysis.get('summary', '')
+        )
         
         # Extract risk analysis from the proper structure
         risk_analysis = analysis_result.get('risk_analysis', {})
-        risk_score = risk_analysis.get('overall_risk_score', 0)
-        risk_categories = risk_analysis.get('risk_categories', {})
-        risk_indicators = risk_analysis.get('key_risk_indicators', [])
+        risk_score = (
+            risk_analysis.get('overall_risk_score', 0) or 
+            risk_analysis.get('risk_score', 0) or
+            risk_analysis.get('score', 0)
+        )
+        # Try multiple possible field names for risk insight
+        risk_insight = (
+            risk_analysis.get('risk_summary', '') or 
+            risk_analysis.get('reasoning', '') or 
+            risk_analysis.get('insight', '') or
+            risk_analysis.get('summary', '') or
+            risk_analysis.get('risk_confidence', '')
+        )
         
-        # Extract analysis method from the proper structure
-        analysis_method = analysis_result.get('analysis_method', 'unknown')
+        # Extract summary from multiple possible locations
+        summary = (
+            analysis_result.get('summary', '') or 
+            article.get('summary', '') or
+            sentiment_analysis.get('summary', '') or
+            risk_analysis.get('summary', '') or
+            sentiment_analysis.get('justification', '') or  # Use sentiment justification as summary if no other summary
+            risk_analysis.get('risk_summary', '')  # Use risk summary as fallback
+        )
         
         # Extract article metadata
         publish_date = article.get('publish_date')
@@ -424,53 +524,47 @@ class PineconeDB:
         else:
             formatted_date = 'N/A'
         
-        # Create comprehensive metadata
+        # Use selected entity if provided, otherwise determine using LLM logic
+        if selected_entity and selected_entity != "All Companies":
+            entity = selected_entity
+        else:
+            entity = self._determine_entity(article)
+        
+        # Get current system date for article_extracted_date
+        article_extracted_date = datetime.now().strftime('%Y-%m-%d')
+        
+        # Create metadata with essential fields and LLM insights
         metadata = {
-            # Article identification
-            'article_id': self.create_article_id(article),
-            'url': article.get('url', ''),
+            # Essential article identification
+            'id': self.create_article_id(article),
             'title': article.get('title', ''),
+            'text': article.get('text', ''),
+            'url': article.get('url', ''),
             'source': self.extract_clean_source(article),
             'publish_date': formatted_date,
             'authors': article.get('authors', []),
             
-            # Content
-            'text': article.get('text', ''),
-            'summary': article.get('summary', ''),
-            'keywords': article.get('keywords', []),
-            'meta_description': article.get('meta_description', ''),
-            'entity': article.get('entity', ''),
+            # NEW FIELDS as requested
+            'entity': entity,  # LLM-determined entity mapping
+            'article_extracted_date': article_extracted_date,  # System date when added to DB
             
-            # Sentiment analysis
-            'sentiment_score': sentiment_score,
+            # LLM-generated analysis fields
+            'sentiment_score': sentiment_score,  # LLM-produced sentiment score
             'sentiment_category': sentiment_category,
-            'sentiment_justification': sentiment_justification,
-            'positive_count': sentiment_analysis.get('positive_count', 0),
-            'negative_count': sentiment_analysis.get('negative_count', 0),
-            'total_relevant': sentiment_analysis.get('total_relevant', 0),
+            'sentiment_insight': sentiment_insight,  # LLM-generated sentiment insight
             
-            # Risk analysis
-            'risk_score': risk_score,
-            'risk_categories': json.dumps(risk_categories),
-            'risk_indicators': json.dumps(risk_indicators),
-            'keywords_found': json.dumps(risk_analysis.get('keywords_found', [])),
+            'risk_score': risk_score,  # LLM-produced risk score
+            'risk_insight': risk_insight,  # LLM-generated risk insight
             
-            # Processing metadata
-            'extraction_time': article.get('extraction_time', ''),
-            'analysis_timestamp': datetime.now().isoformat(),
-            'analysis_method': analysis_method,
-            'sentiment_method': analysis_method,
-            'risk_method': 'llm_advanced',
-            'storage_type': 'database',
+            'summary': summary,  # LLM-generated article summary
             
-            # Full analysis result
-            'full_analysis': json.dumps(analysis_result),
-            'full_article_data': json.dumps(article)
+            # Essential metadata
+            'analysis_timestamp': datetime.now().isoformat()
         }
         
         return metadata
     
-    def store_article(self, article: Dict, analysis_result: Dict) -> bool:
+    def store_article(self, article: Dict, analysis_result: Dict, selected_entity: str = None) -> bool:
         """Store article with analysis results in Pinecone database"""
         try:
             # Check if article already exists using backward compatible method
@@ -493,7 +587,7 @@ class PineconeDB:
             article_id = self.create_article_id(article)
             
             # Format metadata
-            metadata = self.format_metadata(article, analysis_result)
+            metadata = self.format_metadata(article, analysis_result, selected_entity)
             
             # Upsert to Pinecone database
             self.index.upsert(
@@ -511,7 +605,7 @@ class PineconeDB:
             logger.error(f"Error storing article in database: {e}")
             return False
     
-    def store_articles_batch(self, articles: List[Dict], analysis_results: List[Dict]) -> Dict[str, int]:
+    def store_articles_batch(self, articles: List[Dict], analysis_results: List[Dict], selected_entity: str = None) -> Dict[str, int]:
         """Store multiple articles in batch to database"""
         success_count = 0
         error_count = 0
@@ -526,7 +620,7 @@ class PineconeDB:
                 logger.info(f"Article already exists in database, skipping: {article.get('title', 'Unknown')} ({url})")
                 continue
             
-            if self.store_article(article, analysis_result):
+            if self.store_article(article, analysis_result, selected_entity):
                 success_count += 1
             else:
                 error_count += 1
@@ -660,6 +754,192 @@ class PineconeDB:
         except Exception as e:
             logger.error(f"Error getting all articles: {e}")
             return []
+    
+    def get_articles_with_date_filter(self, date_filter: str, top_k: int = 1000) -> List[Dict]:
+        """Get articles filtered by date at database level for better performance"""
+        try:
+            # Use a generic query to get articles
+            query_embedding = self.generate_embedding("article")
+            
+            # Build Pinecone metadata filter for date
+            pinecone_filter = self._build_date_filter(date_filter)
+            
+            results = self.index.query(
+                vector=query_embedding,
+                top_k=top_k,
+                filter=pinecone_filter,
+                include_metadata=True,
+                include_values=True
+            )
+            
+            # Format results with complete metadata
+            articles = []
+            articles_with_embeddings = 0
+            for match in results.matches:
+                metadata = match.metadata
+                has_embedding = match.values is not None
+                if has_embedding:
+                    articles_with_embeddings += 1
+                
+                articles.append({
+                    'id': match.id,
+                    'score': match.score,
+                    'title': metadata.get('title', ''),
+                    'url': metadata.get('url', ''),
+                    'source': metadata.get('source', ''),
+                    'publish_date': metadata.get('publish_date', ''),
+                    'sentiment_score': metadata.get('sentiment_score', 0),
+                    'sentiment_category': metadata.get('sentiment_category', 'Neutral'),
+                    'risk_score': metadata.get('risk_score', 0),
+                    'text': metadata.get('text', ''),
+                    'analysis_timestamp': metadata.get('analysis_timestamp', ''),
+                    'entity': metadata.get('entity', ''),
+                    'authors': metadata.get('authors', []),
+                    'keywords': metadata.get('keywords', []),
+                    'summary': metadata.get('summary', ''),
+                    'meta_description': metadata.get('meta_description', ''),
+                    'sentiment_justification': metadata.get('sentiment_justification', ''),
+                    'risk_categories': metadata.get('risk_categories', ''),
+                    'risk_indicators': metadata.get('risk_indicators', ''),
+                    'extraction_time': metadata.get('extraction_time', ''),
+                    'analysis_method': metadata.get('analysis_method', ''),
+                    'sentiment_method': metadata.get('sentiment_method', ''),
+                    'risk_method': metadata.get('risk_method', ''),
+                    'storage_type': metadata.get('storage_type', ''),
+                    'keywords_found': metadata.get('keywords_found', ''),
+                    'full_analysis': metadata.get('full_analysis', ''),
+                    'embedding': match.values if has_embedding else None
+                })
+            
+            print(f"📊 ARTICLES RETRIEVED WITH DATE FILTER:")
+            print(f"   Total articles: {len(articles)}")
+            print(f"   Articles with embeddings: {articles_with_embeddings}")
+            print(f"   Embedding availability: {(articles_with_embeddings/len(articles)*100):.1f}%" if articles else "0%")
+            
+            return articles
+            
+        except Exception as e:
+            logger.error(f"Error getting articles with date filter: {e}")
+            return []
+    
+    def get_articles_with_filters(self, date_filter: str = None, entity_filter: str = None, top_k: int = 1000) -> List[Dict]:
+        """Get articles with both date and entity filters applied at database level"""
+        try:
+            # Use a generic query to get articles
+            query_embedding = self.generate_embedding("article")
+            
+            # Build Pinecone metadata filter
+            pinecone_filter = self._build_combined_filter(date_filter, entity_filter)
+            
+            results = self.index.query(
+                vector=query_embedding,
+                top_k=top_k,
+                filter=pinecone_filter,
+                include_metadata=True,
+                include_values=True
+            )
+            
+            # Format results with complete metadata
+            articles = []
+            articles_with_embeddings = 0
+            for match in results.matches:
+                metadata = match.metadata
+                has_embedding = match.values is not None
+                if has_embedding:
+                    articles_with_embeddings += 1
+                
+                articles.append({
+                    'id': match.id,
+                    'score': match.score,
+                    'title': metadata.get('title', ''),
+                    'url': metadata.get('url', ''),
+                    'source': metadata.get('source', ''),
+                    'publish_date': metadata.get('publish_date', ''),
+                    'sentiment_score': metadata.get('sentiment_score', 0),
+                    'sentiment_category': metadata.get('sentiment_category', 'Neutral'),
+                    'risk_score': metadata.get('risk_score', 0),
+                    'text': metadata.get('text', ''),
+                    'analysis_timestamp': metadata.get('analysis_timestamp', ''),
+                    'entity': metadata.get('entity', ''),
+                    'authors': metadata.get('authors', []),
+                    'keywords': metadata.get('keywords', []),
+                    'summary': metadata.get('summary', ''),
+                    'meta_description': metadata.get('meta_description', ''),
+                    'sentiment_justification': metadata.get('sentiment_justification', ''),
+                    'risk_categories': metadata.get('risk_categories', ''),
+                    'risk_indicators': metadata.get('risk_indicators', ''),
+                    'extraction_time': metadata.get('extraction_time', ''),
+                    'analysis_method': metadata.get('analysis_method', ''),
+                    'sentiment_method': metadata.get('sentiment_method', ''),
+                    'risk_method': metadata.get('risk_method', ''),
+                    'storage_type': metadata.get('storage_type', ''),
+                    'keywords_found': metadata.get('keywords_found', ''),
+                    'full_analysis': metadata.get('full_analysis', ''),
+                    'embedding': match.values if has_embedding else None
+                })
+            
+            print(f"📊 ARTICLES RETRIEVED WITH FILTERS:")
+            print(f"   Date filter: {date_filter or 'None'}")
+            print(f"   Entity filter: {entity_filter or 'None'}")
+            print(f"   Total articles: {len(articles)}")
+            print(f"   Articles with embeddings: {articles_with_embeddings}")
+            print(f"   Embedding availability: {(articles_with_embeddings/len(articles)*100):.1f}%" if articles else "0%")
+            
+            return articles
+            
+        except Exception as e:
+            logger.error(f"Error getting articles with filters: {e}")
+            return []
+    
+    def _build_date_filter(self, date_filter: str) -> Dict:
+        """Build Pinecone metadata filter for date filtering"""
+        if not date_filter or date_filter == "All Dates":
+            return None
+        
+        try:
+            from datetime import datetime, timedelta
+            
+            if date_filter == "Last 7 days":
+                cutoff_date = datetime.now() - timedelta(days=7)
+            elif date_filter == "Last 30 days":
+                cutoff_date = datetime.now() - timedelta(days=30)
+            else:
+                # Specific date format: YYYY-MM-DD
+                cutoff_date = datetime.strptime(date_filter, "%Y-%m-%d")
+            
+            # Convert to timestamp for Pinecone filtering
+            cutoff_timestamp = cutoff_date.timestamp()
+            
+            return {
+                "analysis_timestamp": {"$gte": cutoff_timestamp}
+            }
+            
+        except Exception as e:
+            logger.error(f"Error building date filter: {e}")
+            return None
+    
+    def _build_combined_filter(self, date_filter: str = None, entity_filter: str = None) -> Dict:
+        """Build Pinecone metadata filter combining date and entity filters"""
+        filters = []
+        
+        # Add date filter
+        if date_filter and date_filter != "All Dates":
+            date_filter_dict = self._build_date_filter(date_filter)
+            if date_filter_dict:
+                filters.append(date_filter_dict)
+        
+        # Add entity filter (if entity field is populated)
+        if entity_filter and entity_filter != "All Companies":
+            # Note: Entity filtering at Pinecone level only works if entity field is properly populated
+            # For now, we'll do entity filtering in memory after date filtering
+            pass
+        
+        if not filters:
+            return None
+        elif len(filters) == 1:
+            return filters[0]
+        else:
+            return {"$and": filters}
     
     def delete_article(self, article_id: str) -> bool:
         """Delete an article from the index"""

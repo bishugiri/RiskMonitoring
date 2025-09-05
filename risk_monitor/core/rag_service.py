@@ -305,10 +305,10 @@ class RAGService:
             print(f"   Final results: {len(relevant_articles)} articles (top {top_k})")
             print(f"📊 FINAL SEARCH RESULTS:")
             print(f"   Total articles found: {len(relevant_articles)}")
-            print(f"   Searched: {len(filtered_results)} articles from {len(all_articles)} total")
+            print(f"   Searched: {len(filtered_results)} articles from {total_articles} total")
             print(f"   Cache updated: {len(filtered_results)} articles for follow-up queries")
             
-            logger.info(f"Optimized search completed: Found {len(relevant_articles)} relevant articles (searched {len(filtered_results)} articles from {len(all_articles)} total)")
+            logger.info(f"Optimized search completed: Found {len(relevant_articles)} relevant articles (searched {len(filtered_results)} articles from {total_articles} total)")
             
             return relevant_articles
             
@@ -318,8 +318,8 @@ class RAGService:
             return []
     
     def search_articles(self, query: str, top_k: int = 50, entity_filter: str = None, date_filter: str = None) -> List[Dict]:
-        """Search for articles using NEW FILTERING FLOW: Date → Entity → Query"""
-        print(f"🔍 NEW FILTERING FLOW - INPUT:")
+        """Search for articles using OPTIMIZED FILTERING FLOW: Date → Entity → Query"""
+        print(f"🔍 OPTIMIZED SEARCH FLOW - INPUT:")
         print(f"   Query: '{query}'")
         print(f"   Top_k: {top_k}")
         print(f"   Entity Filter: {entity_filter}")
@@ -332,50 +332,22 @@ class RAGService:
             total_articles = stats.get('total_vector_count', 0)
             print(f"📊 Database Stats: {total_articles} total articles")
             
-            # NEW FLOW: Start with ALL articles, then apply filters progressively
-            print(f"🔄 NEW FILTERING FLOW: Date → Entity → Query")
+            # OPTIMIZED FLOW: Apply filters at database level first
+            print(f"🔄 OPTIMIZED FLOW: Date → Entity → Query → Top {top_k}")
             
-            # Step 1: Get ALL articles from database (no semantic search yet)
-            print(f"📋 Step 1: Getting ALL articles from database...")
-            all_articles = self.pinecone_db.get_all_articles(top_k=total_articles)
-            print(f"✅ Retrieved {len(all_articles)} total articles")
-            
-            filtered_results = all_articles
-            
-            # Step 2: Apply DATE FILTER FIRST
+            # Step 1: Get articles with date filter applied at database level
+            print(f"📋 Step 1: Getting articles with DATE FILTER applied at database level...")
             if date_filter and date_filter != "All Dates":
-                print(f"📅 Step 2: Applying DATE FILTER FIRST - '{date_filter}'")
-                original_count = len(filtered_results)
-                
-                from datetime import datetime, timedelta
-                try:
-                    if date_filter == "Last 7 days":
-                        cutoff_date = datetime.now() - timedelta(days=7)
-                    elif date_filter == "Last 30 days":
-                        cutoff_date = datetime.now() - timedelta(days=30)
-                    else:
-                        # Specific date format: YYYY-MM-DD
-                        cutoff_date = datetime.strptime(date_filter, "%Y-%m-%d")
-                    
-                    # Filter articles by date using analysis_timestamp
-                    date_filtered_results = []
-                    for article in filtered_results:
-                        article_date = self._parse_article_date(article)
-                        if article_date >= cutoff_date:
-                            date_filtered_results.append(article)
-                    
-                    filtered_results = date_filtered_results
-                    print(f"   ✅ Date filter result: {len(filtered_results)} articles (from {original_count})")
-                    
-                except Exception as e:
-                    print(f"   ❌ Error applying date filter: {e}")
-                    logger.error(f"Error applying date filter: {e}")
+                filtered_results = self.pinecone_db.get_articles_with_date_filter(date_filter, top_k=total_articles)
+                print(f"✅ Retrieved {len(filtered_results)} articles after date filter")
             else:
-                print(f"📅 Step 2: No date filter applied")
+                # No date filter, get all articles
+                filtered_results = self.pinecone_db.get_all_articles(top_k=total_articles)
+                print(f"✅ Retrieved {len(filtered_results)} articles (no date filter)")
             
-            # Step 3: Apply ENTITY FILTER SECOND
+            # Step 2: Apply ENTITY FILTER SECOND (in memory since entity field may not be populated)
             if entity_filter and entity_filter != "All Companies":
-                print(f"🔍 Step 3: Applying ENTITY FILTER SECOND - '{entity_filter}'")
+                print(f"🔍 Step 2: Applying ENTITY FILTER SECOND - '{entity_filter}'")
                 original_count = len(filtered_results)
                 
                 # More flexible entity filtering - search in title, text, and entity field
@@ -395,11 +367,12 @@ class RAGService:
                 filtered_results = entity_filtered_results
                 print(f"   ✅ Entity filter result: {len(filtered_results)} articles (from {original_count})")
             else:
-                print(f"🔍 Step 3: No entity filter applied")
+                print(f"🔍 Step 2: No entity filter applied")
             
-            # Step 4: Apply USER QUERY FILTER (semantic search on filtered results)
+            # Step 3: Apply USER QUERY FILTER (semantic search on filtered results)
             if query and query.strip():
-                print(f"🔍 Step 4: Applying USER QUERY FILTER - '{query}'")
+                print(f"🔍 Step 3: Applying SEMANTIC SEARCH - '{query}'")
+                print(f"   ⚡ OPTIMIZATION: Getting top {top_k} most relevant articles only")
                 original_count = len(filtered_results)
                 
                 # Perform semantic search on the already filtered results using pre-computed embeddings
@@ -411,7 +384,7 @@ class RAGService:
                 else:
                     print(f"   ⚠️  No articles to apply query filter to")
             else:
-                print(f"🔍 Step 4: No query filter applied")
+                print(f"🔍 Step 3: No query filter applied")
             
             print(f"📋 FILTERING STATUS:")
             print(f"   Date filter: {'Applied' if date_filter and date_filter != 'All Dates' else 'None'}")
@@ -422,8 +395,8 @@ class RAGService:
             # Log comprehensive search results
             print(f"📊 FINAL SEARCH RESULTS:")
             print(f"   Total articles found: {len(filtered_results)}")
-            print(f"   Searched: {len(all_articles)} articles from {total_articles} total")
-            logger.info(f"New filtering flow completed: Found {len(filtered_results)} relevant articles for query: '{query}' (searched {len(all_articles)} articles from {total_articles} total)")
+            print(f"   Searched: {len(filtered_results)} articles from {total_articles} total")
+            logger.info(f"Optimized filtering flow completed: Found {len(filtered_results)} relevant articles for query: '{query}' (searched {len(filtered_results)} articles from {total_articles} total)")
             
             # If we have results, log some statistics for debugging
             if filtered_results:
@@ -873,75 +846,60 @@ Analysis scope: Full article content and comprehensive analysis
 
 ## DATABASE JSON STRUCTURE (Pinecone Records):
 
-Each article in the database is stored as a JSON record with the following exact structure:
+Each article in the database is stored as a JSON record with the following structure:
 
 ```json
 {
-  "id": "unique_article_id",
-  "article_id": "unique_article_id",
+  "id": "unique_article_id_hash",
   "title": "Article Title",
   "text": "FULL ARTICLE CONTENT - Complete article text",
   "url": "https://article-url.com",
   "source": "Source Name",
-  "publish_date": "YYYY-MM-DD or N/A",
-  "authors": ["Author1", "Author2"] or [],
-  "entity": "Company/Entity Name",
-  "summary": "Article summary or empty string",
-  "keywords": ["keyword1", "keyword2"] or [],
-  "meta_description": "Meta description text",
-  "extraction_time": 1756930962.399424,
-  "analysis_timestamp": "2025-09-04T02:12:41.340621",
+  "publish_date": "2025-09-02 00:00:00",
+  "authors": ["Author1", "Author2"],
+  "entity": "AAPL - Apple Inc",  // LLM-determined entity mapping
+  "article_extracted_date": "2025-09-05",  // System date when added to DB
   
-  // SENTIMENT ANALYSIS FIELDS (PRE-STORED):
-  "sentiment_score": 0.0,  // EXACT numeric value (-1 to 1 scale)
+  // LLM-GENERATED ANALYSIS FIELDS:
+  "sentiment_score": 0.0,  // LLM-produced sentiment score (-1 to 1 scale)
   "sentiment_category": "Neutral",  // "Positive", "Negative", "Neutral"
-  "sentiment_justification": "Detailed justification text",
-  "sentiment_method": "dual",
-  "positive_count": 0,
-  "negative_count": 0,
-  "total_relevant": 0,
+  "sentiment_insight": "LLM-generated insight behind sentiment based on article",
   
-  // RISK ANALYSIS FIELDS (PRE-STORED):
-  "risk_score": 0,  // EXACT numeric value
-  "risk_method": "Ilm_advanced",
-  "risk_categories": {},  // JSON object with risk categories
-  "risk_indicators": [],  // Array of risk indicators
+  "risk_score": 0,  // LLM-produced risk score
+  "risk_insight": "LLM-generated insight behind risk based on article",
   
-  // ANALYSIS METADATA:
-  "analysis_method": "dual",
-  "storage_type": "database",
-  "keywords_found": [],
-  "full_analysis": "JSON string with detailed analysis",
-  "full_article_data": "JSON string with article metadata"
+  "summary": "LLM-generated summary of the article",
+  
+  // ESSENTIAL METADATA:
+  "analysis_timestamp": "2025-09-05T17:57:07.452401"
 }
 ```
 
 ## CRITICAL FIELD MAPPING FOR QUERIES:
 
-**For Sentiment Score Queries:**
-- PRIMARY: `sentiment_score` (direct field)
-- FALLBACK: `sentiment_analysis.score` (if sentiment_analysis is a nested object)
-- **USE EXACT VALUE**: If sentiment_score = 0.0, report "Sentiment Score: 0.0"
-- **USE EXACT VALUE**: If sentiment_score = -0.2, report "Sentiment Score: -0.2"
+**For Sentiment Analysis Queries:**
+- PRIMARY: `sentiment_score` (LLM-produced score)
+- PRIMARY: `sentiment_category` (Positive/Negative/Neutral)
+- PRIMARY: `sentiment_insight` (LLM-generated reasoning behind sentiment)
+- **USE EXACT VALUES**: Report exact sentiment scores and insights from LLM analysis
 
-**For Risk Score Queries:**
-- PRIMARY: `risk_score` (direct field)
-- FALLBACK: `risk_analysis.risk_score` (if risk_analysis is a nested object)
-- **USE EXACT VALUE**: If risk_score = 1.8889308651303365, report "Risk Score: 1.8889308651303365"
-- **USE EXACT VALUE**: If risk_score = 0, report "Risk Score: 0"
+**For Risk Analysis Queries:**
+- PRIMARY: `risk_score` (LLM-produced score)
+- PRIMARY: `risk_insight` (LLM-generated reasoning behind risk assessment)
+- **USE EXACT VALUES**: Report exact risk scores and insights from LLM analysis
 
-**For Article Content Queries:**
+**For Article Summary Queries:**
+- PRIMARY: `summary` (LLM-generated article summary)
 - PRIMARY: `text` field contains the FULL article content
 - PRIMARY: `title` field contains the article title
 - PRIMARY: `url` field contains the article URL
 
 **For Article Metadata Queries:**
 - `source`: Source name
-- `entity`: Company/entity name
+- `entity`: Company/entity name (e.g., "AAPL - Apple Inc")
 - `publish_date`: Publication date
 - `authors`: Array of authors
-- `summary`: Article summary
-- `keywords`: Array of keywords
+- `article_extracted_date`: Date when article was added to database (e.g., "2025-09-05")
 
 ## YOUR EXPERTISE & CAPABILITIES:
 
@@ -961,28 +919,27 @@ Each article in the database is stored as a JSON record with the following exact
 
 ## COMPLETE DATA STRUCTURE YOU CAN ACCESS:
 
-**Complete Article Data:**
+**Essential Article Data:**
 - FULL ARTICLE TEXT: Complete article content stored in the 'text' field
-- Title, source, publish date, authors, URL, link
-- Summary, keywords, meta description, entity
-- Extraction timestamps and analysis methodology
+- Title, source, publish date, authors, URL
+- Entity mapping (e.g., "AAPL - Apple Inc") - **LLM-determined entity**
+- Article extracted date (e.g., "2025-09-05") - **System date when added to DB**
 
-**Sentiment Analysis (PRE-STORED DATA):**
-- Sentiment score (-1 to 1 scale) and category (Positive/Negative/Neutral) - **USE THESE EXACT VALUES**
-- Sentiment justification and detailed analysis - **USE PRE-STORED JUSTIFICATION**
-- Positive/negative keyword counts and total relevant terms - **USE PRE-STORED COUNTS**
-- **DO NOT PERFORM REAL-TIME SENTIMENT ANALYSIS**
+**LLM-Generated Sentiment Analysis:**
+- Sentiment score (-1 to 1 scale) and category (Positive/Negative/Neutral) - **LLM-produced**
+- Sentiment insight - **LLM-generated reasoning behind sentiment based on article**
+- **DO NOT PERFORM REAL-TIME SENTIMENT ANALYSIS - USE PRE-STORED LLM INSIGHTS**
 
-**Risk Analysis:**
-- Overall risk score and detailed risk categories
-- Specific risk indicators and keywords found
-- Risk severity scoring and categorization
-- Complete risk assessment data
+**LLM-Generated Risk Analysis:**
+- Risk score - **LLM-produced**
+- Risk insight - **LLM-generated reasoning behind risk assessment based on article**
 
-**Complete Metadata:**
-- All article metadata including source details, dates, authors
-- Matched keywords and entity information
-- Full analysis results with timestamps
+**LLM-Generated Summary:**
+- Article summary - **LLM-generated summary of the article content**
+
+**Essential Metadata:**
+- Analysis timestamp
+- Source details and publication information
 
 ## RESPONSE GUIDELINES:
 
@@ -1014,11 +971,18 @@ Each article in the database is stored as a JSON record with the following exact
 **4. CRITICAL INSTRUCTIONS FOR METRIC QUERIES:**
 - When user asks for "sentiment score of [article title]", find that exact article and provide ONLY the exact numeric sentiment score
 - When user asks for "risk score of [article title]", find that exact article and provide ONLY the exact numeric risk score
+- When user asks for "sentiment insight of [article title]", provide the LLM-generated sentiment insight
+- When user asks for "risk insight of [article title]", provide the LLM-generated risk insight
+- When user asks for "summary of [article title]", provide the LLM-generated article summary
 - When user asks for "metrics and link", provide ONLY the exact scores and URL, no additional commentary
 - Use the EXACT numeric values from the metadata (e.g., -0.4, 10.0), not rounded or approximated values
 - Format metric responses as: "Sentiment Score: [exact number]" and "Risk Score: [exact number]"
-- **CRITICAL**: Look for sentiment scores in these fields: 'sentiment_analysis.score', 'sentiment_score', 'score'
-- **CRITICAL**: Look for risk scores in these fields: 'risk_analysis.risk_score', 'risk_score'
+- Format insight responses as: "Sentiment Insight: [LLM-generated insight]" and "Risk Insight: [LLM-generated insight]"
+- **CRITICAL**: Look for sentiment scores in: 'sentiment_score' field
+- **CRITICAL**: Look for risk scores in: 'risk_score' field
+- **CRITICAL**: Look for sentiment insights in: 'sentiment_insight' field
+- **CRITICAL**: Look for risk insights in: 'risk_insight' field
+- **CRITICAL**: Look for summaries in: 'summary' field
 - **CRITICAL**: Do NOT default to 0 if the actual score is different (e.g., -0.2, 0.8, 1.8889308651303365)
 - **CRITICAL**: Use the exact numeric value as stored in the database, even if it's negative or decimal
 - **EXAMPLE**: If the data shows "Sentiment Score: -0.2", respond with "Sentiment Score: -0.2", NOT "Sentiment Score: 0"

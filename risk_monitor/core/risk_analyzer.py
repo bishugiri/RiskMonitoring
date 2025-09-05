@@ -406,7 +406,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
         
         return insights
     
-    async def analyze_and_store_advanced(self, articles: List[Dict], sentiment_method: str = 'llm') -> Dict[str, Any]:
+    async def analyze_and_store_advanced(self, articles: List[Dict], sentiment_method: str = 'llm', selected_entity: str = None) -> Dict[str, Any]:
         """
         Advanced analysis and storage with comprehensive risk assessment
         """
@@ -429,7 +429,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                     
                     # Create analysis results in the same format as scheduler
                     analysis_results_for_storage = []
-                    for article in articles:
+                    for article in analysis_results:  # Use analysis_results instead of articles
                         analysis_result = {
                             'sentiment_analysis': article.get('sentiment_analysis', {}),
                             'risk_analysis': article.get('risk_analysis', {}),
@@ -437,7 +437,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                         }
                         analysis_results_for_storage.append(analysis_result)
                     
-                    storage_stats = analysis_db.store_articles_batch(articles, analysis_results_for_storage)
+                    storage_stats = analysis_db.store_articles_batch(analysis_results, analysis_results_for_storage, selected_entity)
                     
                     storage_type = "database"
                     self.logger.info(f"🔥 SUCCESSFULLY STORED {storage_stats['success_count']} articles in sentiment-db")
@@ -752,7 +752,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             # Return a safe fallback result instead of raising
             return []
     
-    def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'llm', store_in_db: bool = True) -> Dict[str, Any]:
+    def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'llm', store_in_db: bool = True, selected_entity: str = None) -> Dict[str, Any]:
         """
         Analyze articles with optional database storage
         Args:
@@ -769,14 +769,14 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                     # We're in an async context, use asyncio.create_task
                     import concurrent.futures
                     with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(asyncio.run, self.analyze_and_store_advanced(articles, sentiment_method))
+                        future = executor.submit(asyncio.run, self.analyze_and_store_advanced(articles, sentiment_method, selected_entity))
                         return future.result()
                 except RuntimeError:
                     # No event loop running, create one
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        result = loop.run_until_complete(self.analyze_and_store_advanced(articles, sentiment_method))
+                        result = loop.run_until_complete(self.analyze_and_store_advanced(articles, sentiment_method, selected_entity))
                         return result
                     finally:
                         loop.close()

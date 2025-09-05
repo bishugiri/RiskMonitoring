@@ -1033,14 +1033,58 @@ def main():
             st.session_state.search_mode = search_mode
             
             if search_mode == "Counterparty-based":
-                st.write("📋 **Enter companies to monitor (one per line):**")
-                counterparties_input = st.text_area(
-                    "Counterparties",
-                    value="\n".join(st.session_state.counterparties),
-                    placeholder="e.g., Apple Inc\nGoldman Sachs\nJPMorgan Chase",
-                    key="counterparties_input"
+                st.write("🏢 **Select companies to monitor:**")
+                
+                # Get NASDAQ-100 companies list
+                nasdaq_100_companies = get_nasdaq_100_companies()
+                
+                # Create dropdown options with NASDAQ-100 companies
+                dropdown_options = [f"{symbol} - {name}" for symbol, name in nasdaq_100_companies]
+                dropdown_options.insert(0, "All Companies")
+                
+                # Add custom company input option
+                dropdown_options.append("➕ Enter Custom Company...")
+                
+                # Multi-select for counterparties
+                selected_companies = st.multiselect(
+                    "Select Companies/Entities",
+                    options=dropdown_options,
+                    default=st.session_state.get('selected_counterparties', []),
+                    help="Choose from NASDAQ-100 companies or enter custom companies"
                 )
-                st.session_state.counterparties = [c.strip() for c in counterparties_input.split("\n") if c.strip()]
+                
+                # Handle custom company input
+                if "➕ Enter Custom Company..." in selected_companies:
+                    # Remove the custom option from selection
+                    selected_companies = [c for c in selected_companies if c != "➕ Enter Custom Company..."]
+                    
+                    custom_companies_input = st.text_area(
+                        "Enter custom company names (one per line):",
+                        placeholder="e.g., Goldman Sachs\nJPMorgan Chase\nCustom Company Name",
+                        help="Enter company names or ticker symbols, one per line"
+                    )
+                    
+                    if custom_companies_input.strip():
+                        custom_companies = [c.strip() for c in custom_companies_input.split("\n") if c.strip()]
+                        selected_companies.extend(custom_companies)
+                
+                # Store selected counterparties in session state
+                st.session_state.selected_counterparties = selected_companies
+                
+                # Convert to the format expected by the rest of the application
+                if "All Companies" in selected_companies:
+                    st.session_state.counterparties = ["All Companies"]
+                else:
+                    # Use full entity names from dropdown selections
+                    counterparties = []
+                    for selection in selected_companies:
+                        if " - " in selection:
+                            # Use full entity name (e.g., "AAPL - Apple Inc" -> "AAPL - Apple Inc")
+                            counterparties.append(selection)
+                        else:
+                            # Custom company name
+                            counterparties.append(selection)
+                    st.session_state.counterparties = counterparties
             else:
                 st.session_state.custom_query = st.text_input("Custom Search Query", value=st.session_state.get('custom_query', Config.SEARCH_QUERY))
 
@@ -1115,10 +1159,16 @@ def main():
                     # Always store in sentiment-db
                     try:
                         # Use comprehensive analysis with storage in sentiment-db
+                        # Get selected entity from counterparties (use full entity name)
+                        selected_entity = None
+                        if st.session_state.counterparties and len(st.session_state.counterparties) == 1 and st.session_state.counterparties[0] != "All Companies":
+                            selected_entity = st.session_state.counterparties[0]  # Use full entity name like "AAPL - Apple Inc"
+                        
                         analysis_results = analyzer.analyze_and_store_in_pinecone(
                             collected_articles, 
                             st.session_state.sentiment_method,
-                            store_in_db=True  # Always store in sentiment-db
+                            store_in_db=True,  # Always store in sentiment-db
+                            selected_entity=selected_entity
                         )
                         
                         # Extract individual article results for display
@@ -1268,24 +1318,56 @@ def main():
         st.title("🤖 AI Financial Assistant")
         st.markdown("Chat with AI about your stored financial data and get insights.")
         
-        # Initialize RAG service and load data (cached for performance)
+        # Initialize RAG service and load data asynchronously
         try:
-            # Initialize RAG service only once
+            # Initialize RAG service only once (lazy loading)
             if st.session_state.rag_service is None:
-                with st.spinner("🔄 Initializing AI Financial Assistant..."):
-                    from risk_monitor.core.rag_service import RAGService
-                    st.session_state.rag_service = RAGService()
+                # Initialize RAG service lazily with progress indicator
+                if 'rag_init_started' not in st.session_state:
+                    st.session_state.rag_init_started = True
+                    st.session_state.rag_init_complete = False
+                
+                # Show loading state and initialize
+                if not st.session_state.get('rag_init_complete', False):
+                    with st.spinner("🔄 Initializing AI Financial Assistant..."):
+                        try:
+                            from risk_monitor.core.rag_service import RAGService
+                            st.session_state.rag_service = RAGService()
+                            st.session_state.rag_init_complete = True
+                        except Exception as e:
+                            st.session_state.rag_init_error = str(e)
+                            st.session_state.rag_init_complete = True
             
-            # Load database stats only once
-            if st.session_state.db_stats is None:
-                with st.spinner("📊 Loading database statistics..."):
-                    st.session_state.db_stats = st.session_state.rag_service.get_database_stats()
+            # Load database stats only when needed (lazy loading)
+            if st.session_state.db_stats is None and st.session_state.rag_service:
+                if 'db_stats_init_started' not in st.session_state:
+                    st.session_state.db_stats_init_started = True
+                    st.session_state.db_stats_init_complete = False
+                
+                # Show loading state and load stats
+                if not st.session_state.get('db_stats_init_complete', False):
+                    with st.spinner("📊 Loading database statistics..."):
+                        try:
+                            st.session_state.db_stats = st.session_state.rag_service.get_database_stats()
+                            st.session_state.db_stats_init_complete = True
+                        except Exception as e:
+                            st.session_state.db_stats_error = str(e)
+                            st.session_state.db_stats_init_complete = True
             
-            # Load NASDAQ companies list only once
+            # Load NASDAQ companies list only once (lightweight, can be synchronous)
             if st.session_state.nasdaq_companies is None:
                 st.session_state.nasdaq_companies = get_nasdaq_100_companies()
             
-            # Display database info with filters
+            # Check for initialization errors
+            if st.session_state.get('rag_init_error'):
+                st.error(f"❌ Failed to initialize AI Financial Assistant: {st.session_state.rag_init_error}")
+                st.stop()
+            
+            if st.session_state.get('db_stats_error'):
+                st.error(f"❌ Failed to load database statistics: {st.session_state.db_stats_error}")
+                st.stop()
+            
+            # Display database info with filters (only when fully loaded)
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("📊 Total Articles", st.session_state.db_stats.get('total_articles', 0))
