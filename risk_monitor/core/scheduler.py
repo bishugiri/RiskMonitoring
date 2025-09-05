@@ -552,8 +552,10 @@ class NewsScheduler:
                 'avg_risk_score': avg_risk
             }
             
-            # Get top negative articles (sorted by sentiment score)
-            top_negative = sorted(articles, key=lambda x: x.get('sentiment_analysis', {}).get('score', 0))[:10]
+            # Get top negative articles (filter for negative sentiment only, then sort by sentiment score)
+            negative_articles = [article for article in articles 
+                               if article.get('sentiment_analysis', {}).get('score', 0) < 0]
+            top_negative = sorted(negative_articles, key=lambda x: x.get('sentiment_analysis', {}).get('score', 0))[:10]
             
             # Choose email format based on configuration
             if self.config.enable_detailed_email:
