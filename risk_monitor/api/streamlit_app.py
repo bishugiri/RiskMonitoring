@@ -2167,7 +2167,7 @@ def main():
             with col2:
                 timezone_options = [
                     "US/Eastern", "US/Central", "US/Mountain", "US/Pacific",
-                    "Europe/London", "Europe/Paris", "Asia/Tokyo", "Asia/Shanghai",
+                    "Europe/London", "Europe/Paris", "Asia/Kathmandu", "Asia/Tokyo", "Asia/Shanghai",
                     "UTC"
                 ]
                 timezone = st.selectbox(
