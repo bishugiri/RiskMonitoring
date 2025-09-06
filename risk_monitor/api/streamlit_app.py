@@ -73,7 +73,62 @@ def load_custom_css():
         background-color: var(--background-light);
         color: var(--text-dark);
         font-family: 'Open Sans', sans-serif; /* A more modern, clean font */
-        padding-top: 60px !important; /* Add space for fixed header */
+        padding-top: 0 !important; /* Remove excessive padding */
+    }
+    
+    /* Streamlit header and deploy button - clean positioning */
+    .stApp header {
+        background-color: transparent !important;
+        box-shadow: none !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        left: auto !important;
+        z-index: 1000 !important;
+        width: auto !important;
+        height: auto !important;
+    }
+    
+    .stToolbar {
+        background-color: transparent !important;
+        box-shadow: none !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        z-index: 1000 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        padding: 8px !important;
+    }
+    
+    /* Deploy button and status widget positioning */
+    [data-testid="stDeployButton"] {
+        position: fixed !important;
+        top: 8px !important;
+        right: 8px !important;
+        z-index: 1001 !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: transparent !important;
+    }
+    
+    [data-testid="stStatusWidget"] {
+        position: fixed !important;
+        top: 8px !important;
+        right: 60px !important;
+        z-index: 1001 !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: transparent !important;
+    }
+    
+    /* Ensure main content doesn't overlap with header */
+    .main .block-container {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
     }
 
     /* Header styling for the main application title */
@@ -129,63 +184,60 @@ def load_custom_css():
     .stToolbar {visibility: visible !important;}
     .stHeader {visibility: visible !important;}
     
-    /* Ensure all Streamlit header controls are visible and functional */
-    [data-testid="stToolbar"] > div {visibility: visible !important;}
-    [data-testid="stToolbar"] button {visibility: visible !important;}
-    [data-testid="stToolbar"] a {visibility: visible !important;}
-    [data-testid="stToolbar"] span {visibility: visible !important;}
+    /* Streamlit header and deploy button - clean positioning */
+    .stApp header {
+        background-color: transparent !important;
+        box-shadow: none !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        left: auto !important;
+        z-index: 1000 !important;
+        width: auto !important;
+        height: auto !important;
+    }
     
-    /* Ensure the three-dot menu and all controls are visible */
-    .stToolbarItems {visibility: visible !important;}
-    .stToolbarItems > * {visibility: visible !important;}
+    .stToolbar {
+        background-color: transparent !important;
+        box-shadow: none !important;
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        z-index: 1000 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        padding: 8px !important;
+    }
     
-    /* Ensure running status and deploy buttons are visible */
-    [data-testid="stStatusWidget"] {visibility: visible !important; display: inline-block !important;}
-    [data-testid="stDeployButton"] {visibility: visible !important; display: inline-block !important;}
+    /* Deploy button and status widget positioning */
+    [data-testid="stDeployButton"] {
+        position: fixed !important;
+        top: 8px !important;
+        right: 8px !important;
+        z-index: 1001 !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: transparent !important;
+    }
     
-    /* Ensure the running status animation is visible */
-    [data-testid="stStatusWidget"] .stStatusWidget {visibility: visible !important; display: inline-block !important;}
-    [data-testid="stStatusWidget"] .stStatusWidget > div {visibility: visible !important; display: inline-block !important;}
-    [data-testid="stStatusWidget"] .stStatusWidget span {visibility: visible !important; display: inline-block !important;}
+    [data-testid="stStatusWidget"] {
+        position: fixed !important;
+        top: 8px !important;
+        right: 60px !important;
+        z-index: 1001 !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: transparent !important;
+    }
     
-    /* Ensure the running animation is visible */
-    [data-testid="stStatusWidget"] .stStatusWidget .stStatusWidget__status {visibility: visible !important; display: inline-block !important;}
-    [data-testid="stStatusWidget"] .stStatusWidget .stStatusWidget__status-icon {visibility: visible !important; display: inline-block !important;}
-    [data-testid="stStatusWidget"] .stStatusWidget .stStatusWidget__status-text {visibility: visible !important; display: inline-block !important;}
-    
-    /* Remove any potential z-index conflicts */
-    header {z-index: 999 !important;}
-    [data-testid="stHeader"] {z-index: 999 !important;}
-    [data-testid="stToolbar"] {z-index: 999 !important;}
-    
-    /* Ensure proper positioning and spacing for Streamlit header */
-    .stApp > header {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
-    [data-testid="stHeader"] {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
-    [data-testid="stToolbar"] {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
-    
-    /* Ensure deploy button stays in header and doesn't appear in main content */
-    [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
-    
-    /* Force deploy button to stay in top right corner regardless of dynamic changes */
-    .stApp [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
-    header [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
-    
-    /* Ensure header elements don't interfere with main content */
-    .main .block-container {padding-top: 2rem !important;}
-    
-    /* Hide any deploy elements that might appear in main content area */
-    .main [data-testid="stDeployButton"] {display: none !important;}
-    .main .stDeployButton {display: none !important;}
-    .main .deploy-button {display: none !important;}
-    
-    /* Prevent any dynamic repositioning of deploy button */
-    [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important; margin: 0 !important; padding: 0 !important;}
-    
-    /* Override any Streamlit dynamic positioning */
-    .stApp [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important; margin: 0 !important; padding: 0 !important;}
-    
-    /* Ensure deploy button container stays in header */
-    [data-testid="stToolbar"] [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
+    /* Ensure main content doesn't overlap with header */
+    .main .block-container {
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }
     
     /* JavaScript to force deploy button positioning */
     </style>
