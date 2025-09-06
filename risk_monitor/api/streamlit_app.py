@@ -21,7 +21,7 @@ import hashlib
 
 # --- Project Structure & Configuration ---
 # Ensure project structure is accessible for imports
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(project_root)
 
 # Import core and config modules
@@ -157,17 +157,44 @@ def load_custom_css():
         font-weight: 300 !important;
     }
 
-    /* Card styling with smooth hover animations */
+    /* Clean, minimalist card styling */
     .stMetric, .custom-container, .article-card {
-        background-color: var(--card-background);
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
-        border: 1px solid var(--border-color);
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        margin-bottom: 1.5rem;
-        opacity: 0;
-        animation: fadeInUp 0.5s ease-in-out forwards;
+        background-color: transparent;
+        padding: 1rem 0;
+        border-radius: 0;
+        box-shadow: none;
+        border: none;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        transition: all 0.2s ease;
+        margin-bottom: 2rem;
+        opacity: 1;
+    }
+    
+    /* Remove heavy styling from metrics */
+    .stMetric {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 1rem 0 !important;
+    }
+    
+    /* Clean metric labels */
+    .stMetric label {
+        font-size: 0.85rem !important;
+        color: var(--text-muted) !important;
+        font-weight: 500 !important;
+        margin-bottom: 0.25rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+    
+    /* Clean metric values */
+    .stMetric [data-testid="metric-value"] {
+        font-size: 2.5rem !important;
+        font-weight: 300 !important;
+        color: var(--text-dark) !important;
+        margin: 0 !important;
+        line-height: 1 !important;
     }
     
     /* Hide default Streamlit footer but keep header visible */
@@ -444,12 +471,21 @@ def load_custom_css():
     .main .block-container {
         padding-bottom: 4rem !important;
     }
-    .custom-container:hover, .article-card:hover {
-        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
-        transform: translateY(-5px);
-    }
+    /* Clean article card styling */
     .article-card {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 1.5rem 0 !important;
+        margin-bottom: 2rem !important;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+        transition: none !important;
         animation-delay: 0.2s; /* Staggered animation */
+    }
+    
+    .article-card:hover {
+        transform: none !important;
+        box-shadow: none !important;
     }
     
     /* Sidebar styling with gradient background and smooth transitions */
@@ -598,20 +634,82 @@ def load_custom_css():
         line-height: 1.3 !important;
     }
     
+    /* Clean input styling */
+    .stTextInput > div > div > input {
+        border-radius: 0;
+        border: none;
+        border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+        background-color: transparent;
+        transition: border-color 0.2s ease;
+        padding: 0.75rem 0;
+        font-size: 1rem;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-bottom-color: var(--primary-blue);
+        box-shadow: none;
+        outline: none;
+    }
+    
+    /* Clean selectbox styling */
+    .stSelectbox > div > div {
+        border-radius: 0;
+        border: none;
+        border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+        background-color: transparent;
+    }
+    
+    /* Clean textarea styling */
+    .stTextArea > div > div > textarea {
+        border-radius: 0;
+        border: none;
+        border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+        background-color: transparent;
+        transition: border-color 0.2s ease;
+        padding: 0.75rem 0;
+        font-size: 1rem;
+    }
+    
+    .stTextArea > div > div > textarea:focus {
+        border-bottom-color: var(--primary-blue);
+        box-shadow: none;
+        outline: none;
+    }
+    
+    /* Clean button styling */
+    .stButton > button {
+        background-color: transparent;
+        color: var(--primary-blue);
+        border: 2px solid var(--primary-blue);
+        border-radius: 0;
+        padding: 0.75rem 1.5rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+    
+    .stButton > button:hover {
+        background-color: var(--primary-blue);
+        color: white;
+        transform: none;
+        box-shadow: none;
+    }
+
     /* Global component styling */
     h1, h2, h3, h4, h5, h6 { color: var(--primary-blue); font-family: 'Open Sans', sans-serif; }
     .stProgress > div > div > div > div { background-color: var(--primary-blue); }
     .stTabs [data-baseweb="tab-list"] { gap: 1rem; }
     .stTabs [aria-selected="true"] { color: var(--primary-blue); border-bottom: 2px solid var(--primary-blue); }
     .stInfo, .stSuccess, .stWarning, .stError {
-        border-radius: 8px;
-        padding: 1rem;
+        border-radius: 0;
+        padding: 1rem 0;
+        border: none;
         border-left: 4px solid;
+        background-color: transparent;
     }
-    .stInfo { background-color: #E0F2FF; border-left-color: var(--primary-blue); }
-    .stSuccess { background-color: #D6F5E3; border-left-color: var(--success-green); }
-    .stWarning { background-color: #FEF9E7; border-left-color: var(--warning-yellow); }
-    .stError { background-color: #FADBD8; border-left-color: var(--error-red); }
+    .stInfo { border-left-color: var(--primary-blue); }
+    .stSuccess { border-left-color: var(--success-green); }
+    .stWarning { border-left-color: var(--warning-yellow); }
+    .stError { border-left-color: var(--error-red); }
 
     /* Keyframe Animations */
     @keyframes fadeIn {
@@ -2394,10 +2492,6 @@ def main():
                 # Background log status
                 bg_log_status = "✅ Available" if status_info.get('background_log_exists') else "❌ Missing"
                 st.metric(label="Background Log", value=bg_log_status)
-        
-            with col2:
-                if st.button("Refresh Status", type="secondary"):
-                    st.rerun()
             
             # Email subscription controls
             st.markdown("**Email Subscription Controls:**")
