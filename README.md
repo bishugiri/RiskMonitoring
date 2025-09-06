@@ -99,6 +99,13 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+**Note:** Common dependency issues have been resolved:
+- `lxml.html.clean` ImportError: Fixed by including `lxml_html_clean>=0.4.2`
+- Pinecone package error: Updated from `pinecone-client` to `pinecone>=7.0.0`
+- Scheduler dependency: Added `schedule>=1.2.0` for automated scheduling
+
+These dependencies are automatically installed when you run `pip install -r requirements.txt`.
+
 ### 4. Configure Environment
 Create `.streamlit/secrets.toml`:
 ```toml
@@ -269,6 +276,61 @@ pip list
 # Check environment variables
 echo $OPENAI_API_KEY
 ```
+
+#### lxml.html.clean ImportError
+If you encounter the following error:
+```
+ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+Install lxml[html_clean] or lxml_html_clean directly.
+```
+
+**Solution:**
+```bash
+# Install the missing dependency
+pip install lxml_html_clean
+
+# Or install with lxml extras
+pip install lxml[html_clean]
+```
+
+This error occurs because the `lxml.html.clean` module was separated into its own package. The `requirements.txt` file has been updated to include this dependency.
+
+#### Pinecone Package Error
+If you encounter the following error:
+```
+Exception: The official Pinecone python package has been renamed from `pinecone-client` to `pinecone`. Please remove `pinecone-client` from your project dependencies and add `pinecone` instead.
+```
+
+**Solution:**
+```bash
+# Uninstall the old package and install the new one
+pip uninstall pinecone-client -y
+pip install pinecone
+
+# Or update requirements.txt and reinstall
+pip install -r requirements.txt
+```
+
+This error occurs because Pinecone renamed their official Python package from `pinecone-client` to `pinecone`. The `requirements.txt` file has been updated to use the correct package name.
+
+#### Scheduler Status Issues
+If the scheduler shows as "ACTIVE" when it's not actually running, or buttons don't work:
+
+**Solution:**
+```bash
+# Test the scheduler manually
+source venv/bin/activate
+python risk_monitor/scripts/run_data_refresh.py --test
+
+# Check if scheduler is actually running
+pgrep -f run_data_refresh.py
+
+# Check scheduler logs
+tail -f logs/scheduler.log
+tail -f scheduler_background.log
+```
+
+The UI now includes better status detection and uses the virtual environment's Python for all scheduler operations.
 
 #### Scheduler Not Running
 ```bash

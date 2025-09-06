@@ -636,17 +636,26 @@ class NewsScheduler:
     
     def schedule_daily_run(self):
         """Schedule the daily news collection"""
-        # Get run time from config
-        run_time = self.config.run_time
-        
-        # Schedule the job
-        schedule.every().day.at(run_time).do(self.run_daily_collection)
-        logger.info(f"Scheduled enhanced daily news collection at {run_time} {self.config.timezone}")
-        
-        # Run the scheduler
-        while True:
-            schedule.run_pending()
-            time.sleep(60)  # Check every minute
+        try:
+            # Get run time from config
+            run_time = self.config.run_time
+            
+            # Schedule the job
+            schedule.every().day.at(run_time).do(self.run_daily_collection)
+            logger.info(f"Scheduled enhanced daily news collection at {run_time} {self.config.timezone}")
+            
+            # Run the scheduler
+            logger.info("Scheduler started - monitoring for scheduled runs...")
+            while True:
+                try:
+                    schedule.run_pending()
+                    time.sleep(60)  # Check every minute
+                except Exception as e:
+                    logger.error(f"Error in scheduler loop: {e}")
+                    time.sleep(60)  # Wait before retrying
+        except Exception as e:
+            logger.error(f"Fatal error in scheduler: {e}")
+            raise
     
     def run_now(self):
         """Run the news collection immediately"""

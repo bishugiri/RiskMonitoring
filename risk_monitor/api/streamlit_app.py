@@ -163,18 +163,161 @@ def load_custom_css():
     [data-testid="stHeader"] {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
     [data-testid="stToolbar"] {position: fixed !important; top: 0 !important; right: 0 !important; left: auto !important; z-index: 999 !important;}
     
+    /* Ensure deploy button stays in header and doesn't appear in main content */
+    [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
+    
+    /* Force deploy button to stay in top right corner regardless of dynamic changes */
+    .stApp [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
+    header [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
+    
     /* Ensure header elements don't interfere with main content */
     .main .block-container {padding-top: 2rem !important;}
+    
+    /* Hide any deploy elements that might appear in main content area */
+    .main [data-testid="stDeployButton"] {display: none !important;}
+    .main .stDeployButton {display: none !important;}
+    .main .deploy-button {display: none !important;}
+    
+    /* Prevent any dynamic repositioning of deploy button */
+    [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important; margin: 0 !important; padding: 0 !important;}
+    
+    /* Override any Streamlit dynamic positioning */
+    .stApp [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important; margin: 0 !important; padding: 0 !important;}
+    
+    /* Ensure deploy button container stays in header */
+    [data-testid="stToolbar"] [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important;}
+    
+    /* JavaScript to force deploy button positioning */
+    </style>
+    <script>
+    // Force deploy button to stay in top right corner
+    function fixDeployButtonPosition() {
+        const deployButton = document.querySelector('[data-testid="stDeployButton"]');
+        if (deployButton) {
+            // Ultra-aggressive positioning
+            deployButton.style.position = 'fixed';
+            deployButton.style.top = '0';
+            deployButton.style.right = '0';
+            deployButton.style.zIndex = '9999';
+            deployButton.style.transform = 'none';
+            deployButton.style.margin = '0';
+            deployButton.style.padding = '0';
+            deployButton.style.left = 'auto';
+            deployButton.style.bottom = 'auto';
+            deployButton.style.width = 'auto';
+            deployButton.style.height = 'auto';
+            deployButton.style.float = 'none';
+            deployButton.style.clear = 'none';
+            deployButton.style.display = 'block';
+            deployButton.style.visibility = 'visible';
+            deployButton.style.opacity = '1';
+            
+            // Force remove any parent positioning that might interfere
+            let parent = deployButton.parentElement;
+            while (parent && parent !== document.body) {
+                if (parent.style.position === 'relative' || parent.style.position === 'absolute') {
+                    parent.style.position = 'static';
+                }
+                parent = parent.parentElement;
+            }
+        }
+    }
+    
+    // Run on page load and after any dynamic content changes
+    document.addEventListener('DOMContentLoaded', fixDeployButtonPosition);
+    window.addEventListener('load', fixDeployButtonPosition);
+    window.addEventListener('resize', fixDeployButtonPosition);
+    window.addEventListener('scroll', fixDeployButtonPosition);
+    
+    // Use MutationObserver to watch for dynamic changes
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.type === 'childList' || mutation.type === 'attributes') {
+                fixDeployButtonPosition();
+            }
+        });
+    });
+    
+    // Start observing with more comprehensive options
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+    });
+    
+    // Run more frequently to ensure positioning
+    setInterval(fixDeployButtonPosition, 500);
+    
+    // Additional check when Streamlit finishes loading
+    if (window.parent !== window) {
+        window.parent.addEventListener('load', fixDeployButtonPosition);
+    }
+    </script>
+    <style>
     
     /* Additional styling for Streamlit header visibility - transparent background */
     .stApp header {background-color: transparent !important; box-shadow: none !important;}
     .stToolbar {background-color: transparent !important; box-shadow: none !important;}
     .stToolbarItems {display: flex !important; align-items: center !important; justify-content: flex-end !important;}
     
+    /* Final override to ensure deploy button never moves from top right */
+    * [data-testid="stDeployButton"] {position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important; transform: none !important; margin: 0 !important; padding: 0 !important; left: auto !important; bottom: auto !important;}
+    
+    /* Ultra-aggressive positioning to stick at top right corner */
+    [data-testid="stDeployButton"], 
+    .stApp [data-testid="stDeployButton"], 
+    header [data-testid="stDeployButton"],
+    .stToolbar [data-testid="stDeployButton"],
+    .stToolbarItems [data-testid="stDeployButton"] {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        z-index: 9999 !important;
+        transform: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        left: auto !important;
+        bottom: auto !important;
+        width: auto !important;
+        height: auto !important;
+        float: none !important;
+        clear: none !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    /* Prevent parent containers from affecting deploy button positioning */
+    .stApp, .stApp > div, header, .stToolbar, .stToolbarItems {
+        position: static !important;
+    }
+    
+    /* Ensure deploy button is always visible and positioned correctly */
+    [data-testid="stDeployButton"] {
+        position: fixed !important;
+        top: 0 !important;
+        right: 0 !important;
+        z-index: 9999 !important;
+        transform: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        left: auto !important;
+        bottom: auto !important;
+        width: auto !important;
+        height: auto !important;
+        float: none !important;
+        clear: none !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    
     /* Ensure proper spacing and visibility for all header elements - transparent backgrounds */
     [data-testid="stToolbar"] {display: flex !important; visibility: visible !important; justify-content: flex-end !important; background: transparent !important;}
     [data-testid="stStatusWidget"] {display: inline-block !important; visibility: visible !important; margin-left: 8px !important; opacity: 1 !important; background: transparent !important;}
-    [data-testid="stDeployButton"] {display: inline-block !important; visibility: visible !important; margin-left: 8px !important; background: transparent !important;}
+    [data-testid="stDeployButton"] {display: inline-block !important; visibility: visible !important; margin-left: 8px !important; background: transparent !important; position: fixed !important; top: 0 !important; right: 0 !important; z-index: 1000 !important;}
     
     /* Ensure the running status widget and its contents are fully visible */
     [data-testid="stStatusWidget"] * {visibility: visible !important; opacity: 1 !important;}
@@ -669,16 +812,35 @@ def restart_scheduler():
         import os
         script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "run_data_refresh.py")
         
+        # Check if script exists
+        if not os.path.exists(script_path):
+            return False, f"Scheduler script not found at: {script_path}"
+        
+        # Get the virtual environment Python path
+        venv_python = os.path.join(os.path.dirname(os.path.dirname(__file__)), "venv", "bin", "python")
+        
+        # Check if virtual environment exists, otherwise use system python3
+        if os.path.exists(venv_python):
+            python_cmd = venv_python
+        else:
+            python_cmd = "python3"
+        
         # Start new scheduler using proper nohup syntax
         start_result = subprocess.run(
-            f'nohup python3 {script_path} > scheduler_background.log 2>&1 &',
+            f'nohup {python_cmd} {script_path} > scheduler_background.log 2>&1 &',
             capture_output=True, text=True, shell=True
         )
         
         if start_result.returncode == 0:
-            return True, "Scheduler restarted successfully!"
+            # Wait a moment and check if it actually started
+            time.sleep(2)
+            is_running, _, _ = get_scheduler_status()
+            if is_running:
+                return True, "Scheduler restarted successfully!"
+            else:
+                return False, "Scheduler restart command executed but process not detected. Check scheduler_background.log for errors."
         else:
-            return False, f"Error starting scheduler: {start_result.stderr}"
+            return False, f"Error restarting scheduler: {start_result.stderr}"
     except Exception as e:
         return False, f"Error restarting scheduler: {e}"
 
@@ -686,11 +848,25 @@ def stop_scheduler():
     """Stop the scheduler."""
     try:
         import subprocess
+        import time
+        
+        # First check if scheduler is actually running
+        is_running, process_ids, _ = get_scheduler_status()
+        if not is_running:
+            return True, "Scheduler was not running."
+        
+        # Stop the scheduler
         result = subprocess.run(['pkill', '-f', 'run_data_refresh.py'], capture_output=True, text=True)
-        if result.returncode == 0:
+        
+        # Wait a moment for processes to stop
+        time.sleep(2)
+        
+        # Verify it actually stopped
+        is_still_running, _, _ = get_scheduler_status()
+        if not is_still_running:
             return True, "Scheduler stopped successfully!"
         else:
-            return False, "No scheduler process found to stop."
+            return False, "Scheduler stop command executed but process still detected. Try using 'Restart Scheduler' instead."
     except Exception as e:
         return False, f"Error stopping scheduler: {e}"
 
@@ -703,16 +879,41 @@ def start_scheduler():
         # Get the path to the run_data_refresh.py script
         script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts", "run_data_refresh.py")
         
+        # Check if script exists
+        if not os.path.exists(script_path):
+            return False, f"Scheduler script not found at: {script_path}"
+        
+        # Get the virtual environment Python path
+        venv_python = os.path.join(os.path.dirname(os.path.dirname(__file__)), "venv", "bin", "python")
+        
+        # Check if virtual environment exists, otherwise use system python3
+        if os.path.exists(venv_python):
+            python_cmd = venv_python
+        else:
+            python_cmd = "python3"
+        
+        # Test if Python can run the script first
+        test_result = subprocess.run([python_cmd, script_path, '--test'], capture_output=True, text=True, timeout=10)
+        
         # Start the scheduler in the background
         result = subprocess.run(
-            f'nohup python3 {script_path} > scheduler_background.log 2>&1 &',
+            f'nohup {python_cmd} {script_path} > scheduler_background.log 2>&1 &',
             capture_output=True, text=True, shell=True
         )
         
         if result.returncode == 0:
-            return True, "Scheduler started successfully!"
+            # Wait a moment and check if it actually started
+            import time
+            time.sleep(2)
+            is_running, _, _ = get_scheduler_status()
+            if is_running:
+                return True, "Scheduler started successfully!"
+            else:
+                return False, "Scheduler command executed but process not detected. Check scheduler_background.log for errors."
         else:
             return False, f"Error starting scheduler: {result.stderr}"
+    except subprocess.TimeoutExpired:
+        return False, "Scheduler test timed out. Check dependencies and configuration."
     except Exception as e:
         return False, f"Error starting scheduler: {e}"
 
@@ -738,10 +939,29 @@ def get_scheduler_status():
         import os
         from datetime import datetime
         
-        # Check for run_data_refresh.py processes
+        # Check for run_data_refresh.py processes with more specific matching
         result = subprocess.run(['pgrep', '-f', 'run_data_refresh.py'], capture_output=True, text=True)
         is_running = result.returncode == 0 and result.stdout.strip()
         process_ids = result.stdout.strip().split('\n') if is_running else []
+        
+        # Verify the processes are actually our scheduler processes
+        if is_running:
+            verified_processes = []
+            project_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            for pid in process_ids:
+                try:
+                    # Check if the process is actually running and is our script
+                    ps_result = subprocess.run(['ps', '-p', pid, '-o', 'command='], capture_output=True, text=True)
+                    if ps_result.returncode == 0:
+                        cmd_line = ps_result.stdout.strip()
+                        # Check if it's our specific script (relaxed path checking since ps might not show full path)
+                        if ('run_data_refresh.py' in cmd_line and 
+                            '--test' not in cmd_line):  # Exclude test processes
+                            verified_processes.append(pid)
+                except:
+                    continue
+            process_ids = verified_processes
+            is_running = len(verified_processes) > 0
         
         # Also check for the shell script process
         shell_result = subprocess.run(['pgrep', '-f', 'run_scheduler_with_email.sh'], capture_output=True, text=True)
@@ -760,7 +980,7 @@ def get_scheduler_status():
             'background_log_exists': os.path.exists('scheduler_background.log')
         }
         
-        # Check last run time from log file
+        # Check last run time from log file and verify scheduler is actually working
         if status_info['log_file_exists']:
             try:
                 with open('logs/scheduler.log', 'r') as f:
@@ -777,6 +997,17 @@ def get_scheduler_status():
                                     break
                                 except:
                                     pass
+                        
+                        # If we have a running process but no recent daily collection, 
+                        # check if scheduler is actively monitoring (look for "Scheduler started" message)
+                        if is_running and not status_info.get('last_run'):
+                            for line in reversed(lines[-10:]):  # Check last 10 lines
+                                if "Scheduler started - monitoring for scheduled runs" in line:
+                                    # Scheduler is actively running and monitoring
+                                    break
+                                elif "Scheduled enhanced daily news collection" in line:
+                                    # Scheduler is configured and running
+                                    break
             except:
                 pass
         
