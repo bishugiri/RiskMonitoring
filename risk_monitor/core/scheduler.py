@@ -18,6 +18,37 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 
+# Load secrets into environment before importing other modules
+def load_secrets():
+    """Load secrets from .streamlit/secrets.toml into environment variables"""
+    try:
+        import toml
+        from pathlib import Path
+        
+        # Get the project root directory
+        project_root = Path(__file__).parent.parent.parent.absolute()
+        secrets_file = project_root / ".streamlit" / "secrets.toml"
+        
+        if secrets_file.exists():
+            with open(secrets_file, 'r') as f:
+                secrets = toml.load(f)
+            
+            # Set environment variables
+            for key, value in secrets.items():
+                if key.upper() in ['OPENAI_API_KEY', 'SERPAPI_KEY', 'PINECONE_API_KEY', 
+                                 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD',
+                                 'EMAIL_FROM', 'EMAIL_RECIPIENTS', 'EMAIL_SUBJECT_PREFIX']:
+                    os.environ[key.upper()] = str(value)
+            
+            logger = logging.getLogger("scheduler")
+            logger.info("Successfully loaded secrets into environment variables")
+    except Exception as e:
+        logger = logging.getLogger("scheduler")
+        logger.warning(f"Could not load secrets: {e}")
+
+# Load secrets at module import time
+load_secrets()
+
 from risk_monitor.core.news_collector import NewsCollector
 from risk_monitor.core.risk_analyzer import RiskAnalyzer
 from risk_monitor.config.settings import Config

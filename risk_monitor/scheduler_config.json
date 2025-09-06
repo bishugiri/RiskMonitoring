@@ -1,12 +1,12 @@
 {
-    "run_time": "05:45",
+    "run_time": "12:15",
     "timezone": "US/Eastern",
     "articles_per_entity": 5,
     "entities": [
-        "MSFT - Microsoft Corporation",
-        "META - Meta Platforms Inc",
-        "GOOGL - Alphabet Inc Class A",
-        "CSCO - Cisco Systems Inc"
+        "SBUX - Starbucks Corporation",
+        "CHTR - Charter Communications Inc",
+        "ISRG - Intuitive Surgical Inc",
+        "LRCX - Lam Research Corporation"
     ],
     "keywords": [
         "risk",
