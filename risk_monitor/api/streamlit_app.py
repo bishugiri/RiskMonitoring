@@ -1423,7 +1423,7 @@ def main():
 
     # --- News Analysis View ---
     elif st.session_state.current_page == "news_analysis":
-        st.markdown('<div class="custom-container"><h2 style="margin: 0;">News Analysis</h2><p style="margin: 0.25rem 0 0; color: #4b5563;">Configure and run financial news analysis.</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="main-header"><h1>📰 News Analysis</h1><p>Configure and run financial news analysis.</p></div>', unsafe_allow_html=True)
         
         search_tab, filters_tab, advanced_tab = st.tabs(["🔍 Search", "🔎 Filters", "⚙️ Advanced"])
         
@@ -1715,8 +1715,7 @@ def main():
 
     # --- AI Financial Assistant View ---
     elif st.session_state.current_page == "rag_chat":
-        st.title("🤖 AI Financial Assistant")
-        st.markdown("Chat with AI about your stored financial data and get insights.")
+        st.markdown('<div class="main-header"><h1>🤖 AI Financial Assistant</h1><p>Chat with AI about your stored financial data and get insights.</p></div>', unsafe_allow_html=True)
         
         # Initialize RAG service and load data asynchronously
         try:
@@ -2144,7 +2143,7 @@ def main():
 
     # --- Scheduler Configuration View ---
     elif st.session_state.current_page == "scheduler_config":
-        st.markdown('<div class="custom-container"><h2 style="margin: 0;">⏰ Scheduler Configuration</h2><p style="margin: 0.25rem 0 0; color: #4b5563;">Configure automated news collection and analysis scheduling.</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="main-header"><h1>⏰ Scheduler Configuration</h1><p>Configure automated news collection and analysis scheduling.</p></div>', unsafe_allow_html=True)
         
         # Load current configuration
         config = load_scheduler_config()
