@@ -406,7 +406,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
         
         return insights
     
-    async def analyze_and_store_advanced(self, articles: List[Dict], sentiment_method: str = 'llm', selected_entity: str = None) -> Dict[str, Any]:
+    async def analyze_and_store_advanced(self, articles: List[Dict], sentiment_method: str = 'llm', selected_entity: str = None, search_mode: str = "Counterparty-based") -> Dict[str, Any]:
         """
         Advanced analysis and storage with comprehensive risk assessment
         """
@@ -437,7 +437,7 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                         }
                         analysis_results_for_storage.append(analysis_result)
                     
-                    storage_stats = analysis_db.store_articles_batch(analysis_results, analysis_results_for_storage, selected_entity)
+                    storage_stats = analysis_db.store_articles_batch(analysis_results, analysis_results_for_storage, selected_entity, search_mode)
                     
                     storage_type = "database"
                     self.logger.info(f"🔥 SUCCESSFULLY STORED {storage_stats['success_count']} articles in sentiment-db")
@@ -752,13 +752,15 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
             # Return a safe fallback result instead of raising
             return []
     
-    def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'llm', store_in_db: bool = True, selected_entity: str = None) -> Dict[str, Any]:
+    def analyze_and_store_in_pinecone(self, articles: List[Dict], sentiment_method: str = 'llm', store_in_db: bool = True, selected_entity: str = None, search_mode: str = "Counterparty-based") -> Dict[str, Any]:
         """
         Analyze articles with optional database storage
         Args:
             articles: List of articles to analyze
             sentiment_method: Method for sentiment analysis ('llm' or 'lexicon')
             store_in_db: Whether to store results in database (default: True)
+            selected_entity: Pre-selected entity (for counterparty-based searches)
+            search_mode: Search mode ("Counterparty-based" or "Custom Query")
         """
         try:
             if store_in_db:
@@ -769,14 +771,14 @@ Provide a detailed, nuanced risk assessment that considers both immediate and lo
                     # We're in an async context, use asyncio.create_task
                     import concurrent.futures
                     with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(asyncio.run, self.analyze_and_store_advanced(articles, sentiment_method, selected_entity))
+                        future = executor.submit(asyncio.run, self.analyze_and_store_advanced(articles, sentiment_method, selected_entity, search_mode))
                         return future.result()
                 except RuntimeError:
                     # No event loop running, create one
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        result = loop.run_until_complete(self.analyze_and_store_advanced(articles, sentiment_method, selected_entity))
+                        result = loop.run_until_complete(self.analyze_and_store_advanced(articles, sentiment_method, selected_entity, search_mode))
                         return result
                     finally:
                         loop.close()

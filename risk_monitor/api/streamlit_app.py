@@ -1568,7 +1568,8 @@ def main():
                             collected_articles, 
                             st.session_state.sentiment_method,
                             store_in_db=True,  # Always store in sentiment-db
-                            selected_entity=selected_entity
+                            selected_entity=selected_entity,
+                            search_mode=st.session_state.search_mode
                         )
                         
                         # Extract individual article results for display

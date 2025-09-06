@@ -82,13 +82,15 @@ class PineconeDB:
         except Exception as e:
             logger.error(f"Error getting/creating index: {e}")
 
-    async def store_articles_batch_async(self, articles: List[Dict], analysis_results: List[Dict], selected_entity: str = None) -> Dict[str, int]:
+    async def store_articles_batch_async(self, articles: List[Dict], analysis_results: List[Dict], selected_entity: str = None, search_mode: str = "Counterparty-based") -> Dict[str, int]:
         """
         Store multiple articles in batch with concurrent processing
         
         Args:
             articles: List of articles to store
             analysis_results: List of analysis results
+            selected_entity: Pre-selected entity (for counterparty-based searches)
+            search_mode: Search mode ("Counterparty-based" or "Custom Query")
             
         Returns:
             Dictionary with success/error counts
@@ -169,7 +171,7 @@ class PineconeDB:
         try:
             # Generate embeddings concurrently
             embedding_task = self._generate_embedding_async(article)
-            metadata_task = self._prepare_metadata_async(article, analysis_result, selected_entity)
+            metadata_task = self._prepare_metadata_async(article, analysis_result, selected_entity, search_mode)
             
             # Wait for both tasks to complete
             embedding, metadata = await asyncio.gather(embedding_task, metadata_task)
@@ -248,13 +250,15 @@ class PineconeDB:
             logger.error(f"Error generating embedding: {e}")
             return None
 
-    async def _prepare_metadata_async(self, article: Dict, analysis_result: Dict, selected_entity: str = None) -> Dict[str, Any]:
+    async def _prepare_metadata_async(self, article: Dict, analysis_result: Dict, selected_entity: str = None, search_mode: str = "Counterparty-based") -> Dict[str, Any]:
         """
         Prepare metadata for article storage asynchronously
         
         Args:
             article: Article data
             analysis_result: Analysis result
+            selected_entity: Pre-selected entity (for counterparty-based searches)
+            search_mode: Search mode ("Counterparty-based" or "Custom Query")
             
         Returns:
             Metadata dictionary
@@ -270,7 +274,7 @@ class PineconeDB:
                 # Entity already set in article (e.g., by scheduler)
                 entity = article.get('entity')
             else:
-                entity = self._determine_entity(article)
+                entity = self._determine_entity(article, search_mode)
             
             # Get current system date for article_extracted_date
             article_extracted_date = datetime.now().strftime('%Y-%m-%d')
@@ -406,10 +410,14 @@ class PineconeDB:
         
         return "Unknown"
     
-    def _determine_entity(self, article: Dict) -> str:
-        """Determine the main entity/company from article content using LLM"""
+    def _determine_entity(self, article: Dict, search_mode: str = "Counterparty-based") -> str:
+        """Determine the main entity/company from article content using LLM or hardcoded mapping"""
         try:
-            # Entity mapping dictionary
+            # For custom queries, use LLM to determine entity from existing company list
+            if search_mode == "Custom Query":
+                return self._determine_entity_with_llm(article)
+            
+            # For counterparty-based, use hardcoded entity mapping (existing logic)
             entity_mappings = {
                 "apple": "AAPL - Apple Inc",
                 "microsoft": "MSFT - Microsoft Corporation", 
@@ -472,7 +480,67 @@ class PineconeDB:
             logger.error(f"Error determining entity: {e}")
             return ""
 
-    def format_metadata(self, article: Dict, analysis_result: Dict, selected_entity: str = None) -> Dict[str, Any]:
+    def _determine_entity_with_llm(self, article: Dict) -> str:
+        """Use LLM to determine the most relevant entity from the existing company list"""
+        try:
+            from risk_monitor.api.streamlit_app import get_nasdaq_100_companies
+            from risk_monitor.config.settings import Config
+            import openai
+            
+            # Get the list of available companies
+            nasdaq_companies = get_nasdaq_100_companies()
+            company_list = [f"{symbol} - {name}" for symbol, name in nasdaq_companies]
+            
+            # Prepare article content for analysis
+            article_title = article.get('title', '')
+            article_text = article.get('text', '')
+            article_content = f"Title: {article_title}\n\nContent: {article_text[:2000]}"  # Limit content for token efficiency
+            
+            # Create prompt for LLM
+            prompt = f"""You are a financial analysis expert. Based on the following news article, determine which company from the provided list is most relevant to this article.
+
+Available Companies:
+{chr(10).join(company_list)}
+
+Article:
+{article_content}
+
+Instructions:
+1. Analyze the article content carefully
+2. Identify the primary company/entity mentioned or most relevant to the article
+3. Return ONLY the exact company entry from the list above (format: "SYMBOL - Company Name")
+4. If no specific company is clearly relevant, return "Unknown"
+5. Do not provide any explanation, just the company entry or "Unknown"
+
+Most relevant company:"""
+
+            # Call OpenAI API
+            client = openai.OpenAI(api_key=Config.get_openai_api_key())
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a financial analysis expert specializing in company identification from news articles."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=50,
+                temperature=0.1
+            )
+            
+            entity_result = response.choices[0].message.content.strip()
+            
+            # Validate that the result is in our company list
+            if entity_result in company_list:
+                logger.info(f"LLM determined entity: {entity_result}")
+                return entity_result
+            else:
+                logger.warning(f"LLM returned invalid entity: {entity_result}, defaulting to Unknown")
+                return "Unknown"
+                
+        except Exception as e:
+            logger.error(f"Error in LLM entity determination: {e}")
+            return "Unknown"
+
+    def format_metadata(self, article: Dict, analysis_result: Dict, selected_entity: str = None, search_mode: str = "Counterparty-based") -> Dict[str, Any]:
         """Format simplified metadata for Pinecone storage with essential fields and LLM insights"""
         
         # Extract sentiment analysis from the proper structure
@@ -534,7 +602,7 @@ class PineconeDB:
             # Entity already set in article (e.g., by scheduler)
             entity = article.get('entity')
         else:
-            entity = self._determine_entity(article)
+            entity = self._determine_entity(article, search_mode)
         
         # Get current system date for article_extracted_date
         article_extracted_date = datetime.now().strftime('%Y-%m-%d')
@@ -570,7 +638,7 @@ class PineconeDB:
         
         return metadata
     
-    def store_article(self, article: Dict, analysis_result: Dict, selected_entity: str = None) -> bool:
+    def store_article(self, article: Dict, analysis_result: Dict, selected_entity: str = None, search_mode: str = "Counterparty-based") -> bool:
         """Store article with analysis results in Pinecone database"""
         try:
             # Check if article already exists using backward compatible method
@@ -593,7 +661,7 @@ class PineconeDB:
             article_id = self.create_article_id(article)
             
             # Format metadata
-            metadata = self.format_metadata(article, analysis_result, selected_entity)
+            metadata = self.format_metadata(article, analysis_result, selected_entity, search_mode)
             
             # Upsert to Pinecone database
             self.index.upsert(
@@ -611,7 +679,7 @@ class PineconeDB:
             logger.error(f"Error storing article in database: {e}")
             return False
     
-    def store_articles_batch(self, articles: List[Dict], analysis_results: List[Dict], selected_entity: str = None) -> Dict[str, int]:
+    def store_articles_batch(self, articles: List[Dict], analysis_results: List[Dict], selected_entity: str = None, search_mode: str = "Counterparty-based") -> Dict[str, int]:
         """Store multiple articles in batch to database"""
         success_count = 0
         error_count = 0
@@ -626,7 +694,7 @@ class PineconeDB:
                 logger.info(f"Article already exists in database, skipping: {article.get('title', 'Unknown')} ({url})")
                 continue
             
-            if self.store_article(article, analysis_result, selected_entity):
+            if self.store_article(article, analysis_result, selected_entity, search_mode):
                 success_count += 1
             else:
                 error_count += 1
